@@ -1,14 +1,16 @@
-# Building FFmpeg for Android
+# Building FFmpeg for Android - Full GPL Build
 
-This guide documents the complete process of building FFmpeg binaries for Android with full codec support, hardware acceleration, and Android 15+ 16KB page alignment compatibility.
+This guide documents the complete process of building FFmpeg binaries for Android with **FULL codec support** including all encoders/decoders, external libraries (libmp3lame, x264, x265, vpx, opus, etc.), hardware acceleration, and Android 15+ 16KB page alignment compatibility.
 
 ## Prerequisites
 
 - Android NDK 27.0.12077973 or later
 - macOS/Linux build environment
-- At least 10GB free disk space
+- At least 20GB free disk space (for building external libraries)
 - Git
 - Make tools
+- Autoconf, Automake, CMake (for building external libraries)
+- pkg-config
 
 ## Build Environment Setup
 
@@ -21,6 +23,158 @@ export MIN_API=21
 
 # Build directory
 export BUILD_DIR="/tmp/ffmpeg-full-build"
+```
+
+## Building External Libraries First
+
+### 1. Build libmp3lame (MP3 encoding)
+
+```bash
+cd $BUILD_DIR
+git clone https://github.com/lameproject/lame.git
+cd lame
+git checkout v3.100
+
+# Build for arm64-v8a
+export TOOLCHAIN=$NDK_PATH/toolchains/llvm/prebuilt/darwin-x86_64
+export CC=$TOOLCHAIN/bin/aarch64-linux-android21-clang
+export CXX=$TOOLCHAIN/bin/aarch64-linux-android21-clang++
+export AR=$TOOLCHAIN/bin/llvm-ar
+export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
+export STRIP=$TOOLCHAIN/bin/llvm-strip
+
+./configure \
+    --host=aarch64-linux-android \
+    --prefix=$BUILD_DIR/external/arm64-v8a \
+    --disable-shared \
+    --enable-static \
+    --disable-frontend
+
+make clean
+make -j8
+make install
+```
+
+### 2. Build x264 (H.264 encoding)
+
+```bash
+cd $BUILD_DIR
+git clone https://code.videolan.org/videolan/x264.git
+cd x264
+
+# Build for arm64-v8a
+./configure \
+    --host=aarch64-linux-android \
+    --cross-prefix=$TOOLCHAIN/bin/aarch64-linux-android- \
+    --sysroot=$TOOLCHAIN/sysroot \
+    --prefix=$BUILD_DIR/external/arm64-v8a \
+    --enable-static \
+    --enable-pic \
+    --disable-cli
+
+make clean
+make -j8
+make install
+```
+
+### 3. Build x265 (H.265/HEVC encoding)
+
+```bash
+cd $BUILD_DIR
+git clone https://github.com/videolan/x265.git
+cd x265/build/linux
+
+cmake -G "Unix Makefiles" \
+    -DCMAKE_TOOLCHAIN_FILE=$NDK_PATH/build/cmake/android.toolchain.cmake \
+    -DANDROID_ABI=arm64-v8a \
+    -DANDROID_PLATFORM=android-21 \
+    -DCMAKE_INSTALL_PREFIX=$BUILD_DIR/external/arm64-v8a \
+    -DENABLE_SHARED=OFF \
+    -DENABLE_CLI=OFF \
+    ../../source
+
+make -j8
+make install
+```
+
+### 4. Build libvpx (VP8/VP9 encoding)
+
+```bash
+cd $BUILD_DIR
+git clone https://chromium.googlesource.com/webm/libvpx.git
+cd libvpx
+
+# Build for arm64-v8a
+./configure \
+    --target=arm64-android-gcc \
+    --prefix=$BUILD_DIR/external/arm64-v8a \
+    --disable-examples \
+    --disable-docs \
+    --disable-unit-tests \
+    --enable-static \
+    --disable-shared \
+    --enable-vp8 \
+    --enable-vp9
+
+make clean
+make -j8
+make install
+```
+
+### 5. Build libopus (Opus audio encoding)
+
+```bash
+cd $BUILD_DIR
+git clone https://github.com/xiph/opus.git
+cd opus
+
+./autogen.sh
+./configure \
+    --host=aarch64-linux-android \
+    --prefix=$BUILD_DIR/external/arm64-v8a \
+    --disable-shared \
+    --enable-static \
+    --disable-doc
+
+make clean
+make -j8
+make install
+```
+
+### 6. Build libvorbis (Vorbis audio encoding)
+
+```bash
+cd $BUILD_DIR
+# First build libogg (dependency)
+git clone https://github.com/xiph/ogg.git
+cd ogg
+./autogen.sh
+./configure \
+    --host=aarch64-linux-android \
+    --prefix=$BUILD_DIR/external/arm64-v8a \
+    --disable-shared \
+    --enable-static
+
+make clean
+make -j8
+make install
+
+# Now build libvorbis
+cd $BUILD_DIR
+git clone https://github.com/xiph/vorbis.git
+cd vorbis
+./autogen.sh
+PKG_CONFIG_PATH=$BUILD_DIR/external/arm64-v8a/lib/pkgconfig \
+./configure \
+    --host=aarch64-linux-android \
+    --prefix=$BUILD_DIR/external/arm64-v8a \
+    --disable-shared \
+    --enable-static \
+    --with-ogg=$BUILD_DIR/external/arm64-v8a
+
+make clean
+make -j8
+make install
 ```
 
 ## Download FFmpeg Source
@@ -72,6 +226,13 @@ build_arch() {
     cd "$FFMPEG_SOURCE"
     make clean 2>/dev/null || true
     
+    # Set PKG_CONFIG_PATH for external libraries
+    export PKG_CONFIG_PATH="$BUILD_DIR/external/$ABI/lib/pkgconfig"
+    
+    # Add include and lib paths for external libraries
+    EXTRA_CFLAGS="$EXTRA_CFLAGS -I$BUILD_DIR/external/$ABI/include"
+    EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L$BUILD_DIR/external/$ABI/lib"
+    
     ./configure \
         --prefix=/tmp/ffmpeg-full-build/output \
         --target-os=android \
@@ -88,6 +249,7 @@ build_arch() {
         --sysroot="$SYSROOT" \
         --extra-cflags="$EXTRA_CFLAGS" \
         --extra-ldflags="$EXTRA_LDFLAGS" \
+        --pkg-config="pkg-config" \
         --enable-static \
         --disable-shared \
         --disable-doc \
@@ -96,44 +258,135 @@ build_arch() {
         --disable-avdevice \
         --disable-symver \
         --enable-gpl \
+        --enable-version3 \
         --enable-pic \
         --disable-debug \
         --enable-jni \
         --enable-mediacodec \
+        --enable-zlib \
+        \
+        `# External Libraries` \
+        --enable-libmp3lame \
+        --enable-libx264 \
+        --enable-libx265 \
+        --enable-libvpx \
+        --enable-libopus \
+        --enable-libvorbis \
+        \
+        `# Video Decoders (Software + Hardware)` \
         --enable-decoder=h264 \
         --enable-decoder=h264_mediacodec \
         --enable-decoder=hevc \
         --enable-decoder=hevc_mediacodec \
         --enable-decoder=mpeg4 \
         --enable-decoder=mpeg4_mediacodec \
+        --enable-decoder=mpeg2video \
         --enable-decoder=vp8 \
         --enable-decoder=vp8_mediacodec \
         --enable-decoder=vp9 \
         --enable-decoder=vp9_mediacodec \
+        --enable-decoder=av1 \
+        --enable-decoder=mjpeg \
+        --enable-decoder=png \
+        --enable-decoder=gif \
+        --enable-decoder=webp \
+        \
+        `# Audio Decoders` \
         --enable-decoder=aac \
         --enable-decoder=mp3 \
         --enable-decoder=opus \
         --enable-decoder=vorbis \
         --enable-decoder=flac \
+        --enable-decoder=ac3 \
+        --enable-decoder=eac3 \
+        --enable-decoder=dts \
+        --enable-decoder=truehd \
+        --enable-decoder=pcm_s16le \
+        --enable-decoder=pcm_s16be \
+        --enable-decoder=pcm_f32le \
+        \
+        `# Video Encoders (Software + External Libraries)` \
+        --enable-encoder=libx264 \
+        --enable-encoder=libx265 \
+        --enable-encoder=libvpx_vp8 \
+        --enable-encoder=libvpx_vp9 \
         --enable-encoder=mpeg4 \
-        --enable-encoder=aac \
+        --enable-encoder=mpeg2video \
         --enable-encoder=mjpeg \
         --enable-encoder=png \
+        --enable-encoder=gif \
+        --enable-encoder=webp \
+        \
+        `# Audio Encoders` \
+        --enable-encoder=libmp3lame \
+        --enable-encoder=aac \
+        --enable-encoder=libopus \
+        --enable-encoder=libvorbis \
+        --enable-encoder=flac \
+        --enable-encoder=ac3 \
+        --enable-encoder=eac3 \
+        --enable-encoder=pcm_s16le \
+        --enable-encoder=pcm_s16be \
+        --enable-encoder=pcm_f32le \
+        \
+        `# Muxers (Container Formats)` \
         --enable-muxer=mp4 \
+        --enable-muxer=mp3 \
         --enable-muxer=webm \
         --enable-muxer=mkv \
         --enable-muxer=mov \
         --enable-muxer=avi \
         --enable-muxer=flv \
+        --enable-muxer=wav \
+        --enable-muxer=flac \
+        --enable-muxer=ogg \
+        --enable-muxer=mpegts \
+        --enable-muxer=hls \
+        --enable-muxer=dash \
+        --enable-muxer=image2 \
+        --enable-muxer=mjpeg \
+        \
+        `# Demuxers` \
         --enable-demuxer=mov \
         --enable-demuxer=mp4 \
+        --enable-demuxer=mp3 \
         --enable-demuxer=avi \
         --enable-demuxer=mkv \
         --enable-demuxer=webm \
         --enable-demuxer=flv \
+        --enable-demuxer=wav \
+        --enable-demuxer=flac \
+        --enable-demuxer=ogg \
+        --enable-demuxer=mpegts \
+        --enable-demuxer=hls \
+        --enable-demuxer=dash \
+        --enable-demuxer=image2 \
+        --enable-demuxer=mjpeg \
+        --enable-demuxer=concat \
+        \
+        `# Parsers (Important for streaming)` \
+        --enable-parser=h264 \
+        --enable-parser=hevc \
+        --enable-parser=mpeg4video \
+        --enable-parser=vp8 \
+        --enable-parser=vp9 \
+        --enable-parser=aac \
+        --enable-parser=mp3 \
+        --enable-parser=opus \
+        --enable-parser=vorbis \
+        --enable-parser=flac \
+        \
+        `# Protocols` \
         --enable-protocol=file \
         --enable-protocol=http \
         --enable-protocol=https \
+        --enable-protocol=rtmp \
+        --enable-protocol=rtmps \
+        --enable-protocol=hls \
+        --enable-protocol=concat \
+        --enable-protocol=data \
+        \
+        `# Filters (All important filters)` \
         --enable-filter=scale \
         --enable-filter=overlay \
         --enable-filter=crop \
@@ -143,7 +396,24 @@ build_arch() {
         --enable-filter=format \
         --enable-filter=aresample \
         --enable-filter=volume \
-        --enable-zlib
+        --enable-filter=pad \
+        --enable-filter=trim \
+        --enable-filter=concat \
+        --enable-filter=split \
+        --enable-filter=vflip \
+        --enable-filter=hflip \
+        --enable-filter=setpts \
+        --enable-filter=adelay \
+        --enable-filter=atempo \
+        --enable-filter=aformat \
+        --enable-filter=amix \
+        --enable-filter=amerge \
+        --enable-filter=channelmap \
+        --enable-filter=channelsplit \
+        --enable-filter=compand \
+        --enable-filter=equalizer \
+        --enable-filter=highpass \
+        --enable-filter=lowpass
     
     make -j8
     
@@ -301,10 +571,22 @@ android {
 
 ## Binary Sizes
 
-Typical sizes for full-featured FFmpeg builds:
-
+### Minimal Build (Current)
 - **arm64-v8a**: ~21MB
 - **armeabi-v7a**: ~19MB
+
+### Full GPL Build (With All External Libraries)
+- **arm64-v8a**: ~50-60MB
+- **armeabi-v7a**: ~45-55MB
+
+The size increase is due to:
+- libmp3lame: ~1-2MB
+- libx264: ~2-3MB
+- libx265: ~5-8MB
+- libvpx: ~3-4MB
+- libopus: ~1MB
+- libvorbis + libogg: ~1-2MB
+- Additional codecs and filters: ~10-15MB
 
 ## Integration with Android Project
 
@@ -351,7 +633,7 @@ Some options may not be available in older FFmpeg versions. Check available opti
 ```bash
 ./configure --help
 ```
-
+are there any other video. audio
 ### Missing Hardware Acceleration
 
 Ensure these are enabled:

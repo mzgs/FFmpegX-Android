@@ -25,76 +25,6 @@ object FFmpegLibraryLoader {
     }
     
     /**
-     * Extract FFmpeg binary to native library directory where execution is allowed
-     * This works around Android 10+ execution restrictions
-     */
-    fun extractToNativeLibDir(
-        context: Context,
-        assetPath: String,
-        outputName: String
-    ): String? {
-        try {
-            val nativeLibDir = getNativeLibraryDir(context)
-            val targetFile = File(nativeLibDir, outputName)
-            
-            Log.d(TAG, "Extracting $assetPath to native lib dir: ${targetFile.absolutePath}")
-            
-            // Check if file already exists and is valid
-            if (targetFile.exists() && targetFile.length() > 1000) {
-                Log.d(TAG, "Binary already exists in native lib dir: ${targetFile.absolutePath}")
-                makeExecutable(targetFile)
-                return targetFile.absolutePath
-            }
-            
-            // Try different asset paths
-            val assetPaths = listOf(
-                assetPath,
-                assetPath.replace("ffmpeg", "libffmpeg.so"),
-                assetPath.replace("ffmpeg/", "ffmpeg/").plus(".so")
-            )
-            
-            var extracted = false
-            for (path in assetPaths) {
-                try {
-                    // Extract from assets
-                    context.assets.open(path).use { input ->
-                        FileOutputStream(targetFile).use { output ->
-                            val bytesCopied = input.copyTo(output, bufferSize = 8192)
-                            Log.d(TAG, "Extracted $bytesCopied bytes from $path to native lib dir")
-                            if (bytesCopied > 1000) {
-                                extracted = true
-                            }
-                        }
-                    }
-                    if (extracted) break
-                } catch (e: Exception) {
-                    Log.d(TAG, "Asset not found at $path, trying next...")
-                }
-            }
-            
-            if (!extracted) {
-                Log.e(TAG, "Failed to extract FFmpeg to native lib dir")
-                return null
-            }
-            
-            // Make executable
-            makeExecutable(targetFile)
-            
-            // Verify
-            if (targetFile.exists()) {
-                Log.i(TAG, "Successfully extracted to native lib dir: ${targetFile.absolutePath}")
-                return targetFile.absolutePath
-            } else {
-                Log.e(TAG, "File doesn't exist after extraction to native lib dir")
-                return null
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to extract to native lib dir", e)
-            return null
-        }
-    }
-
-    /**
      * Extract FFmpeg binary to app files directory
      * For Android 10+, we'll need to use app_process or dalvikvm to execute
      */
@@ -108,11 +38,37 @@ object FFmpegLibraryLoader {
             
             Log.d(TAG, "Extracting $assetPath to ${targetFile.absolutePath}")
             
-            // If file already exists, check if it's valid
-            if (targetFile.exists() && targetFile.length() > 1000) {
-                Log.d(TAG, "Binary already exists: ${targetFile.absolutePath}")
-                makeExecutable(targetFile)
-                return targetFile.absolutePath
+            // If file already exists, check if it's valid and up-to-date
+            if (targetFile.exists()) {
+                val existingSize = targetFile.length()
+                
+                // Check asset size to detect updates
+                var assetSize = 0L
+                try {
+                    context.assets.open(assetPath.replace("ffmpeg", "libffmpeg.so")).use { 
+                        assetSize = it.available().toLong()
+                    }
+                } catch (e: Exception) {
+                    // Try alternative paths
+                    try {
+                        context.assets.open("$assetPath/libffmpeg.so").use { 
+                            assetSize = it.available().toLong()
+                        }
+                    } catch (e2: Exception) {
+                        Log.d(TAG, "Could not determine asset size")
+                    }
+                }
+                
+                // If sizes differ significantly (new build is much larger), re-extract
+                if (assetSize > 0 && (assetSize - existingSize) > 5_000_000) {
+                    Log.d(TAG, "New FFmpeg build detected (old: ${existingSize/1024/1024}MB, new: ${assetSize/1024/1024}MB)")
+                    Log.d(TAG, "Deleting old binary and extracting new one...")
+                    targetFile.delete()
+                } else if (existingSize > 1000) {
+                    Log.d(TAG, "Binary already exists: ${targetFile.absolutePath} (${existingSize/1024/1024}MB)")
+                    makeExecutable(targetFile)
+                    return targetFile.absolutePath
+                }
             }
             
             // Try different asset paths

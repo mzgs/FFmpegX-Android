@@ -18,28 +18,6 @@ A powerful, standalone FFmpeg library for Android that works on all Android vers
 
 ### Installation
 
-#### Option 1: JitPack (Recommended)
-
-**Step 1.** Add JitPack repository to your `settings.gradle.kts`:
-```kotlin
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-    repositories {
-        mavenCentral()
-        maven { url = uri("https://jitpack.io") }
-    }
-}
-```
-
-**Step 2.** Add the dependency to your app's `build.gradle.kts`:
-```kotlin
-dependencies {
-    implementation("com.github.mzgs:FFmpegX-Android:v1.0.7")
-}
-```
-
-#### Option 2: Local Module
-
 1. Add the library module to your project in `settings.gradle.kts`:
 ```kotlin
 include(":FFMpegLib")

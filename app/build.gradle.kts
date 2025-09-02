@@ -11,7 +11,7 @@ android {
     defaultConfig {
         applicationId = "com.mzgs.ffmpeglib"
         minSdk = 24
-        targetSdk = 34  // Updated for Google Play requirements
+        targetSdk = 28  // Target API 28 to avoid Android 10+ W^X restrictions
         versionCode = 1
         versionName = "1.0"
 

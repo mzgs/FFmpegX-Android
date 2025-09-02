@@ -6,7 +6,6 @@ import java.util.zip.ZipInputStream
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
-    `maven-publish`
 }
 
 android {
@@ -88,46 +87,13 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
 }
 
-// FFmpeg binaries are already included in src/main/assets/ffmpeg/
-// No need to download them again
+// Apply the download script
+apply(from = "download_ffmpeg.gradle.kts")
 
-// Configure Maven publishing for JitPack
-afterEvaluate {
-    publishing {
-        publications {
-            create<MavenPublication>("release") {
-                from(components["release"])
-                
-                groupId = "com.github.mzgs"
-                artifactId = "FFmpegX-Android"
-                version = "1.0"
-                
-                pom {
-                    name.set("FFmpegX-Android")
-                    description.set("Android FFmpeg library with hardware acceleration support")
-                    url.set("https://github.com/mzgs/FFmpegX-Android")
-                    
-                    licenses {
-                        license {
-                            name.set("The Apache License, Version 2.0")
-                            url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
-                        }
-                    }
-                    
-                    developers {
-                        developer {
-                            id.set("mzgs")
-                            name.set("Mustafa")
-                        }
-                    }
-                    
-                    scm {
-                        connection.set("scm:git:github.com/mzgs/FFmpegX-Android.git")
-                        developerConnection.set("scm:git:ssh://github.com/mzgs/FFmpegX-Android.git")
-                        url.set("https://github.com/mzgs/FFmpegX-Android")
-                    }
-                }
-            }
-        }
+// Only download FFmpeg binaries if they don't exist
+tasks.named("preBuild").configure {
+    val markerFile = File(projectDir, "src/main/assets/ffmpeg/.downloaded")
+    if (!markerFile.exists()) {
+        dependsOn("downloadFFmpegBinaries")
     }
 }

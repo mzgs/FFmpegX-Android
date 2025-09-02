@@ -1,4 +1,3 @@
-
 package com.mzgs.ffmpeglib
 
 import android.Manifest
@@ -23,12 +22,12 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.mzgs.ffmpeglib.ui.theme.FfmpegLibTheme
 import com.mzgs.ffmpegx.FFmpeg
-import com.mzgs.ffmpegx.FFmpegHelper
 import com.mzgs.ffmpegx.FFmpegInstaller
+import com.mzgs.ffmpegx.MediaInformation
+import com.mzgs.ffmpegx.VideoStream
+import com.mzgs.ffmpegx.AudioStream
 import com.mzgs.ffmpegx.FFmpegOperations
-import com.mzgs.ffmpegx.FFmpegUtils
-import com.mzgs.ffmpegx.FFmpegOperations.VideoQuality
-import com.mzgs.ffmpegx.FFmpegOperations.AudioFormat
+import com.mzgs.ffmpegx.FFmpegHelper
 import kotlinx.coroutines.launch
 import java.io.File
 import android.os.Build
@@ -258,6 +257,45 @@ class MainActivity : ComponentActivity() {
                         Text("2b. Select Video from Downloads/Files")
                     }
                     
+                    // Download Test Video Button
+                    Button(
+                        onClick = {
+                            lifecycleScope.launch {
+                                val downloader = VideoDownloader(this@MainActivity)
+                                isProcessing = true
+                                currentTest = "Downloading Video"
+                                outputText += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                outputText += "Starting video download...\n"
+                                
+                                downloader.downloadVideo(
+                                    onProgress = { progressValue, message ->
+                                        progress = progressValue
+                                        outputText += "$message\n"
+                                    },
+                                    onComplete = { path ->
+                                        if (path != null) {
+                                            testVideoPath = path
+                                            outputText += "✓ Video ready at: $path\n"
+                                            outputText += "  Size: ${File(path).length() / 1024}KB\n"
+                                        } else {
+                                            outputText += "✗ Download failed\n"
+                                        }
+                                        isProcessing = false
+                                        currentTest = ""
+                                        progress = 0f
+                                    }
+                                )
+                            }
+                        },
+                        enabled = !isProcessing,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondary
+                        )
+                    ) {
+                        Text("3. Download Sample Video (Big Buck Bunny)")
+                    }
+                    
                     Divider(modifier = Modifier.padding(vertical = 8.dp))
                     
                     Text(
@@ -381,7 +419,18 @@ class MainActivity : ComponentActivity() {
                                     outputText += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                                     outputText += "Extracting audio...\n"
                                     
-                                    val outputPath = File(cacheDir, "audio_${System.currentTimeMillis()}.mp3").absolutePath
+                                    // First check if the video has audio
+                                    val mediaInfo = ffmpeg.getMediaInfo(path)
+                                    if (mediaInfo?.audioStreams?.isEmpty() == true) {
+                                        outputText += "⚠️ This video doesn't contain any audio stream!\n"
+                                        outputText += "  Please select a video with audio.\n"
+                                        isProcessing = false
+                                        currentTest = ""
+                                        return@launch
+                                    }
+                                    
+                                    val timestamp = System.currentTimeMillis()
+                                    val outputPath = File(cacheDir, "audio_$timestamp.mp3").absolutePath
                                     
                                     ffmpeg.operations().extractAudio(
                                         inputPath = path,
@@ -396,17 +445,37 @@ class MainActivity : ComponentActivity() {
                                                 progress = prog / 100f
                                             }
                                             
-                                            override fun onOutput(line: String) {}
+                                            override fun onOutput(line: String) {
+                                                // Show audio stream info
+                                                if (line.contains("Audio:")) {
+                                                    outputText += "Found: $line\n"
+                                                }
+                                            }
                                             
                                             override fun onSuccess(output: String?) {
                                                 val outputSize = File(outputPath).length() / 1024
                                                 outputText += "✓ Audio extracted!\n"
                                                 outputText += "  Format: MP3\n"
                                                 outputText += "  Size: ${outputSize}KB\n"
+                                                
+                                                // Save to Downloads folder
+                                                lifecycleScope.launch {
+                                                    val savedPath = saveAudioToDownloads(File(outputPath))
+                                                    if (savedPath != null) {
+                                                        outputText += "✓ Saved to Downloads/audio_$timestamp.mp3\n"
+                                                    } else {
+                                                        outputText += "⚠️ Failed to save to Downloads (audio available in cache)\n"
+                                                    }
+                                                }
                                             }
                                             
                                             override fun onFailure(error: String) {
-                                                outputText += "✗ Extraction failed: $error\n"
+                                                if (error.contains("does not contain any stream")) {
+                                                    outputText += "✗ No audio stream found in this video!\n"
+                                                    outputText += "  This video appears to be video-only.\n"
+                                                } else {
+                                                    outputText += "✗ Extraction failed: $error\n"
+                                                }
                                             }
                                             
                                             override fun onFinish() {
@@ -481,6 +550,49 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Test FFmpeg Version")
+                    }
+                    
+                    // Check Available Encoders Button
+                    ElevatedButton(
+                        onClick = {
+                            lifecycleScope.launch {
+                                isProcessing = true
+                                currentTest = "Checking Encoders"
+                                outputText += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                outputText += "Checking available audio encoders...\n"
+                                
+                                ffmpeg.execute(
+                                    "-encoders",
+                                    object : FFmpegHelper.FFmpegCallback {
+                                        override fun onStart() {}
+                                        override fun onProgress(progress: Float, time: Long) {}
+                                        override fun onOutput(line: String) {
+                                            // Show only audio encoders
+                                            if (line.contains("mp3") || line.contains("aac") || 
+                                                line.contains("opus") || line.contains("vorbis") ||
+                                                line.contains("flac") || line.contains("pcm")) {
+                                                outputText += "$line\n"
+                                            }
+                                        }
+                                        override fun onSuccess(output: String?) {
+                                            outputText += "\n✓ Encoder check complete\n"
+                                            outputText += "Note: If libmp3lame is missing, use AAC format instead\n"
+                                        }
+                                        override fun onFailure(error: String) {
+                                            outputText += "✗ Failed to list encoders: $error\n"
+                                        }
+                                        override fun onFinish() {
+                                            isProcessing = false
+                                            currentTest = ""
+                                        }
+                                    }
+                                )
+                            }
+                        },
+                        enabled = !isProcessing,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Check Available Encoders")
                     }
                     
                     Divider(modifier = Modifier.padding(vertical = 8.dp))
@@ -879,6 +991,56 @@ class MainActivity : ComponentActivity() {
                     videoFile.name,
                     "Downloaded from FFmpeg Test App"
                 )
+                
+                return@withContext destFile.absolutePath
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return@withContext null
+    }
+    
+    private suspend fun saveAudioToDownloads(audioFile: File): String? = withContext(Dispatchers.IO) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Android 10+ using MediaStore
+                val mimeType = when {
+                    audioFile.name.endsWith(".mp3", true) -> "audio/mpeg"
+                    audioFile.name.endsWith(".aac", true) -> "audio/aac"
+                    else -> "audio/*"
+                }
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.Audio.Media.DISPLAY_NAME, audioFile.name)
+                    put(MediaStore.Audio.Media.MIME_TYPE, mimeType)
+                    put(MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                    put(MediaStore.Audio.Media.IS_PENDING, 1)
+                }
+                
+                val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                val uri = contentResolver.insert(collection, contentValues)
+                
+                uri?.let { audioUri ->
+                    contentResolver.openOutputStream(audioUri)?.use { output ->
+                        audioFile.inputStream().use { input ->
+                            input.copyTo(output)
+                        }
+                    }
+                    
+                    contentValues.clear()
+                    contentValues.put(MediaStore.Audio.Media.IS_PENDING, 0)
+                    contentResolver.update(audioUri, contentValues, null, null)
+                    
+                    return@withContext audioUri.toString()
+                }
+            } else {
+                // Android 9 and below
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                if (!downloadsDir.exists()) {
+                    downloadsDir.mkdirs()
+                }
+                
+                val destFile = File(downloadsDir, audioFile.name)
+                audioFile.copyTo(destFile, overwrite = true)
                 
                 return@withContext destFile.absolutePath
             }

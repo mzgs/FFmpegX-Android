@@ -60,22 +60,26 @@ class FFmpegOperations(context: Context) {
         val builder = FFmpegCommandBuilder()
             .input(inputPath)
             .overwriteOutput()
-            .noVideo()
         
-        // Use simpler codecs for minimal FFmpeg builds
+        // Use standard FFmpeg approach - let FFmpeg choose encoder based on output format
         when (audioFormat) {
             AudioFormat.MP3 -> {
-                // Try mp3 or fallback to aac
-                builder.audioCodec("libmp3lame")
-                    .audioBitrate("192k")
+                // Standard MP3 extraction: -q:a 0 for best quality, -map a to map audio only
+                builder.customOption("-q:a", "0")
+                    .customOption("-map", "a")
             }
             AudioFormat.AAC -> {
-                builder.audioCodec("aac")
+                builder.customOption("-map", "a")
+                    .audioCodec("aac")
                     .audioBitrate("192k")
             }
+            AudioFormat.WAV -> {
+                builder.customOption("-map", "a")
+                    .audioCodec("pcm_s16le")
+            }
             else -> {
-                // For other formats, just copy the audio stream
-                builder.audioCodec("copy")
+                // For other formats, map audio only
+                builder.customOption("-map", "a")
             }
         }
         
