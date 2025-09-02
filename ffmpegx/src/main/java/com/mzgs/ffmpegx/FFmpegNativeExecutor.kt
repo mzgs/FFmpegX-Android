@@ -92,7 +92,7 @@ object FFmpegNativeExecutor {
         val abi = FFmpegLibraryLoader.getArchitectureAbi()
         var ffmpegPath = FFmpegLibraryLoader.extractToNativeLibDir(
             context,
-            "ffmpeg/$abi/libffmpeg.so",
+            "ffmpeg/$abi/ffmpeg",
             "ffmpeg"
         )
         
@@ -101,7 +101,7 @@ object FFmpegNativeExecutor {
             Log.w(TAG, "Native lib dir extraction failed, trying app files dir")
             ffmpegPath = FFmpegLibraryLoader.extractToAppFilesDir(
                 context,
-                "ffmpeg/$abi/libffmpeg.so",
+                "ffmpeg/$abi/ffmpeg",
                 "ffmpeg"
             )
         }
