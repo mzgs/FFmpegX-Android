@@ -19,6 +19,9 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
         
+        // Disable native build for JitPack - we use pre-compiled binaries
+        // Uncomment if building native code locally
+        /*
         externalNativeBuild {
             cmake {
                 cppFlags += "-std=c++17"
@@ -28,6 +31,7 @@ android {
                 )
             }
         }
+        */
         
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a")
@@ -58,12 +62,16 @@ android {
         jvmTarget = "17"
     }
     
+    // Disable native build for JitPack - we use pre-compiled binaries
+    // Uncomment if building native code locally
+    /*
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
             version = "3.22.1"
         }
     }
+    */
 }
 
 dependencies {
