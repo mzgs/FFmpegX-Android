@@ -1,0 +1,61 @@
+{
+  "buildFiles": [
+    "/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/src/main/cpp/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/Users/mustafa/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/Debug/495o692d/x86_64",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/Users/mustafa/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/Debug/495o692d/x86_64",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "ffmpeg-jni::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "ffmpeg-jni",
+      "output": "/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/build/intermediates/cxx/Debug/495o692d/obj/x86_64/libffmpeg-jni.so",
+      "runtimeFiles": []
+    },
+    "ffmpeg-wrapper::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "ffmpeg-wrapper",
+      "output": "/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/build/intermediates/cxx/Debug/495o692d/obj/x86_64/libffmpeg-wrapper.so",
+      "runtimeFiles": []
+    },
+    "ffmpeg_lib_jni::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "ffmpeg_lib_jni",
+      "output": "/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/build/intermediates/cxx/Debug/495o692d/obj/x86_64/libffmpeg_lib_jni.so",
+      "runtimeFiles": []
+    },
+    "ffmpeg_wrapper::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "ffmpeg_wrapper",
+      "output": "/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/build/intermediates/cxx/Debug/495o692d/obj/x86_64/libffmpeg_wrapper.so",
+      "runtimeFiles": []
+    }
+  },
+  "toolchains": {
+    "toolchain": {
+      "cCompilerExecutable": "/Users/mustafa/Library/Android/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang.lld",
+      "cppCompilerExecutable": "/Users/mustafa/Library/Android/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang++.lld"
+    }
+  },
+  "cFileExtensions": [
+    "c"
+  ],
+  "cppFileExtensions": [
+    "cpp"
+  ]
+}

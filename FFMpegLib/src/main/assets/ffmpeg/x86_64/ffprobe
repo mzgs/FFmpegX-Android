@@ -1,0 +1,3 @@
+#!/system/bin/sh
+echo 'FFmpeg placeholder for x86_64 - Please install actual binary'
+exit 1

@@ -1,0 +1,7 @@
+# ninja log v5
+0	1419	1756736281622493051	CMakeFiles/ffmpeg-jni.dir/ffmpeg-jni.cpp.o	6900dfca291670cf
+1421	1518	1756736281737840858	/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpeg Lib/build/intermediates/cxx/Debug/476y2y2d/obj/arm64-v8a/libffmpeg-jni.so	f2330fd2e16d6ec0
+2	672	1756737581326498753	CMakeFiles/ffmpeg-jni.dir/ffmpeg-jni.cpp.o	6900dfca291670cf
+673	771	1756737581428026570	/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpeg Lib/build/intermediates/cxx/Debug/476y2y2d/obj/arm64-v8a/libffmpeg-jni.so	f2330fd2e16d6ec0
+2	915	1756738677283936564	CMakeFiles/ffmpeg-jni.dir/ffmpeg-jni.cpp.o	6900dfca291670cf
+915	1022	1756738677394828072	/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpeg Lib/build/intermediates/cxx/Debug/476y2y2d/obj/arm64-v8a/libffmpeg-jni.so	f2330fd2e16d6ec0

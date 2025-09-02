@@ -1,0 +1,1 @@
+/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpeg Lib/build/intermediates/cxx/Debug/476y2y2d/obj/arm64-v8a

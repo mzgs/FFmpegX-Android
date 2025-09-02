@@ -1,0 +1,3 @@
+#!/system/bin/sh
+echo 'FFmpeg placeholder for arm64-v8a - Please install actual binary'
+exit 1

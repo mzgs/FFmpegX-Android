@@ -1,0 +1,6 @@
+/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/Debug/495o692d/x86/CMakeFiles/ffmpeg-wrapper.dir
+/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/Debug/495o692d/x86/CMakeFiles/ffmpeg_wrapper.dir
+/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/Debug/495o692d/x86/CMakeFiles/ffmpeg_lib_jni.dir
+/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/Debug/495o692d/x86/CMakeFiles/ffmpeg-jni.dir
+/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/Debug/495o692d/x86/CMakeFiles/edit_cache.dir
+/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/Debug/495o692d/x86/CMakeFiles/rebuild_cache.dir

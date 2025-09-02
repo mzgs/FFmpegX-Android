@@ -1,0 +1,87 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"jsonFile" : "directory-.-Debug-f5ebdc15457944623624.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.6.0"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3
+					]
+				}
+			],
+			"name" : "Debug",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "ffmpeglib",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ffmpeg-jni::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ffmpeg-jni-Debug-0651f4255cbf7d1fd0e6.json",
+					"name" : "ffmpeg-jni",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ffmpeg-wrapper::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ffmpeg-wrapper-Debug-b063cd0ebe0d82de7e67.json",
+					"name" : "ffmpeg-wrapper",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ffmpeg_lib_jni::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ffmpeg_lib_jni-Debug-c6f61eda309f324afaf2.json",
+					"name" : "ffmpeg_lib_jni",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ffmpeg_wrapper::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ffmpeg_wrapper-Debug-2cf612e8f4ba3f4bd305.json",
+					"name" : "ffmpeg_wrapper",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/Debug/495o692d/x86_64",
+		"source" : "/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/src/main/cpp"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

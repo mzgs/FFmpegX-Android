@@ -1,0 +1,3 @@
+/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpeg Lib/.cxx/Debug/476y2y2d/x86/CMakeFiles/ffmpeg-jni.dir
+/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpeg Lib/.cxx/Debug/476y2y2d/x86/CMakeFiles/edit_cache.dir
+/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpeg Lib/.cxx/Debug/476y2y2d/x86/CMakeFiles/rebuild_cache.dir
