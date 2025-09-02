@@ -96,16 +96,8 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
 }
 
-// Apply the download script
-apply(from = "download_ffmpeg.gradle.kts")
-
-// Only download FFmpeg binaries if they don't exist
-tasks.named("preBuild").configure {
-    val markerFile = File(projectDir, "src/main/assets/ffmpeg/.downloaded")
-    if (!markerFile.exists()) {
-        dependsOn("downloadFFmpegBinaries")
-    }
-}
+// FFmpeg binaries are already included in src/main/assets/ffmpeg/
+// No need to download them again
 
 // Configure Maven publishing for JitPack
 afterEvaluate {
