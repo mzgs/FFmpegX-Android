@@ -60,6 +60,7 @@ Java_com_mzgs_ffmpegx_FFmpegWrapper_nativeExecute(JNIEnv *env, jobject thiz,
     // Parse command arguments
     char *args[256];
     int argc = 0;
+    int exitCode = -1;
     
     // First argument is the binary path
     args[argc++] = strdup(path);
@@ -146,7 +147,7 @@ Java_com_mzgs_ffmpegx_FFmpegWrapper_nativeExecute(JNIEnv *env, jobject thiz,
         // Wait for child process to finish
         int status;
         waitpid(pid, &status, 0);
-        int exitCode = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+        exitCode = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
         
         // Clean up
         free(cmdCopy);
