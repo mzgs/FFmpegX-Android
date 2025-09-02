@@ -1,3 +1,4 @@
+
 package com.mzgs.ffmpeglib
 
 import android.Manifest
@@ -21,6 +22,13 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.mzgs.ffmpeglib.ui.theme.FfmpegLibTheme
+import com.mzgs.ffmpegx.FFmpeg
+import com.mzgs.ffmpegx.FFmpegHelper
+import com.mzgs.ffmpegx.FFmpegInstaller
+import com.mzgs.ffmpegx.FFmpegOperations
+import com.mzgs.ffmpegx.FFmpegUtils
+import com.mzgs.ffmpegx.FFmpegOperations.VideoQuality
+import com.mzgs.ffmpegx.FFmpegOperations.AudioFormat
 import kotlinx.coroutines.launch
 import java.io.File
 import android.os.Build
@@ -248,45 +256,6 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("2b. Select Video from Downloads/Files")
-                    }
-                    
-                    // Download Test Video Button
-                    Button(
-                        onClick = {
-                            lifecycleScope.launch {
-                                val downloader = VideoDownloader(this@MainActivity)
-                                isProcessing = true
-                                currentTest = "Downloading Video"
-                                outputText += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                                outputText += "Starting video download...\n"
-                                
-                                downloader.downloadVideo(
-                                    onProgress = { progressValue, message ->
-                                        progress = progressValue
-                                        outputText += "$message\n"
-                                    },
-                                    onComplete = { path ->
-                                        if (path != null) {
-                                            testVideoPath = path
-                                            outputText += "✓ Video ready at: $path\n"
-                                            outputText += "  Size: ${File(path).length() / 1024}KB\n"
-                                        } else {
-                                            outputText += "✗ Download failed\n"
-                                        }
-                                        isProcessing = false
-                                        currentTest = ""
-                                        progress = 0f
-                                    }
-                                )
-                            }
-                        },
-                        enabled = !isProcessing,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.secondary
-                        )
-                    ) {
-                        Text("3. Download Sample Video (Big Buck Bunny)")
                     }
                     
                     Divider(modifier = Modifier.padding(vertical = 8.dp))

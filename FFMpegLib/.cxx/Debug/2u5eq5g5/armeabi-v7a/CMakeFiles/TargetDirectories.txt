@@ -1,6 +1,0 @@
-/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/Debug/2u5eq5g5/armeabi-v7a/CMakeFiles/ffmpeg-wrapper.dir
-/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/Debug/2u5eq5g5/armeabi-v7a/CMakeFiles/ffmpeg_wrapper.dir
-/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/Debug/2u5eq5g5/armeabi-v7a/CMakeFiles/ffmpeg_lib_jni.dir
-/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/Debug/2u5eq5g5/armeabi-v7a/CMakeFiles/ffmpeg-jni.dir
-/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/Debug/2u5eq5g5/armeabi-v7a/CMakeFiles/edit_cache.dir
-/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/Debug/2u5eq5g5/armeabi-v7a/CMakeFiles/rebuild_cache.dir

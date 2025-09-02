@@ -52,7 +52,7 @@ android {
 
 dependencies {
 
-    implementation(project(":FFMpegLib"))
+    implementation(project(":ffmpegx"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)

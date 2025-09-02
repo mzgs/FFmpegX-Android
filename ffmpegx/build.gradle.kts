@@ -10,7 +10,7 @@ plugins {
 }
 
 android {
-    namespace = "com.mzgs.ffmpeglib"
+    namespace = "com.mzgs.ffmpegx"
     compileSdk = 36
 
     defaultConfig {

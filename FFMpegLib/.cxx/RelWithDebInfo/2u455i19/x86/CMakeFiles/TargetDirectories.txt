@@ -1,6 +1,0 @@
-/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/RelWithDebInfo/2u455i19/x86/CMakeFiles/ffmpeg-wrapper.dir
-/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/RelWithDebInfo/2u455i19/x86/CMakeFiles/ffmpeg_wrapper.dir
-/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/RelWithDebInfo/2u455i19/x86/CMakeFiles/ffmpeg_lib_jni.dir
-/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/RelWithDebInfo/2u455i19/x86/CMakeFiles/ffmpeg-jni.dir
-/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/RelWithDebInfo/2u455i19/x86/CMakeFiles/edit_cache.dir
-/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/.cxx/RelWithDebInfo/2u455i19/x86/CMakeFiles/rebuild_cache.dir

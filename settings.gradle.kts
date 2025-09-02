@@ -21,4 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Ffmpeg Lib"
 include(":app")
-include(":FFMpegLib")
+include(":ffmpegx")

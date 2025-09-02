@@ -1,1 +1,0 @@
-/Users/mustafa/AndroidStudioProjects/FfmpegLib/FFMpegLib/build/intermediates/cxx/RelWithDebInfo/2u455i19/obj/x86
