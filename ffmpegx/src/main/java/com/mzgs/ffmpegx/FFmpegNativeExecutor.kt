@@ -88,13 +88,23 @@ object FFmpegNativeExecutor {
     ): Long {
         Log.d(TAG, "Handling Android 10+ execution restrictions using JNI")
         
-        // Extract FFmpeg binary to files directory
+        // Try extracting to native library directory first (Android 10+ compatible)
         val abi = FFmpegLibraryLoader.getArchitectureAbi()
-        val ffmpegPath = FFmpegLibraryLoader.extractToAppFilesDir(
+        var ffmpegPath = FFmpegLibraryLoader.extractToNativeLibDir(
             context,
             "ffmpeg/$abi/libffmpeg.so",
             "ffmpeg"
         )
+        
+        // Fallback to app files directory if native lib dir fails
+        if (ffmpegPath == null) {
+            Log.w(TAG, "Native lib dir extraction failed, trying app files dir")
+            ffmpegPath = FFmpegLibraryLoader.extractToAppFilesDir(
+                context,
+                "ffmpeg/$abi/libffmpeg.so",
+                "ffmpeg"
+            )
+        }
         
         if (ffmpegPath == null) {
             Log.e(TAG, "Could not extract FFmpeg binary")
