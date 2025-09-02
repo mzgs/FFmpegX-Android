@@ -37,7 +37,7 @@ static long nextSessionId = 1;
 extern "C" {
 
 JNIEXPORT jlong JNICALL
-Java_com_mzgs_ffmpeglib_NativeFFmpeg_nativeExecute(
+Java_com_mzgs_ffmpegx_NativeFFmpeg_nativeExecute(
         JNIEnv *env,
         jobject thiz,
         jstring binaryPath,
@@ -291,7 +291,7 @@ Java_com_mzgs_ffmpeglib_NativeFFmpeg_nativeExecute(
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_mzgs_ffmpeglib_NativeFFmpeg_nativeCancel(
+Java_com_mzgs_ffmpegx_NativeFFmpeg_nativeCancel(
         JNIEnv *env,
         jobject thiz,
         jlong sessionId) {
@@ -312,7 +312,7 @@ Java_com_mzgs_ffmpeglib_NativeFFmpeg_nativeCancel(
 }
 
 JNIEXPORT void JNICALL
-Java_com_mzgs_ffmpeglib_NativeFFmpeg_nativeCancelAll(
+Java_com_mzgs_ffmpegx_NativeFFmpeg_nativeCancelAll(
         JNIEnv *env,
         jobject thiz) {
     
@@ -327,7 +327,7 @@ Java_com_mzgs_ffmpeglib_NativeFFmpeg_nativeCancelAll(
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_mzgs_ffmpeglib_NativeFFmpeg_nativeIsRunning(
+Java_com_mzgs_ffmpegx_NativeFFmpeg_nativeIsRunning(
         JNIEnv *env,
         jobject thiz,
         jlong sessionId) {
@@ -344,7 +344,7 @@ Java_com_mzgs_ffmpeglib_NativeFFmpeg_nativeIsRunning(
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_mzgs_ffmpeglib_NativeFFmpeg_nativeGetFFmpegVersion(
+Java_com_mzgs_ffmpegx_NativeFFmpeg_nativeGetFFmpegVersion(
         JNIEnv *env,
         jobject thiz) {
     
@@ -366,7 +366,7 @@ Java_com_mzgs_ffmpeglib_NativeFFmpeg_nativeGetFFmpegVersion(
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_mzgs_ffmpeglib_NativeFFmpeg_nativeIsFFmpegAvailable(
+Java_com_mzgs_ffmpegx_NativeFFmpeg_nativeIsFFmpegAvailable(
         JNIEnv *env,
         jobject thiz) {
     

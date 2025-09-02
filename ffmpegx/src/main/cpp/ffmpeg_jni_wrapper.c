@@ -46,7 +46,7 @@ void* run_ffmpeg_thread(void* arg) {
 }
 
 JNIEXPORT jint JNICALL
-Java_com_mzgs_ffmpeglib_FFmpegJNI_runFFmpeg(JNIEnv *env, jobject thiz, jobjectArray args) {
+Java_com_mzgs_ffmpegx_FFmpegJNI_runFFmpeg(JNIEnv *env, jobject thiz, jobjectArray args) {
     int argc = (*env)->GetArrayLength(env, args) + 1;
     char **argv = (char **)malloc(sizeof(char *) * argc);
     
@@ -97,7 +97,7 @@ Java_com_mzgs_ffmpeglib_FFmpegJNI_runFFmpeg(JNIEnv *env, jobject thiz, jobjectAr
 
 // Alternative: Run FFmpeg synchronously
 JNIEXPORT jint JNICALL
-Java_com_mzgs_ffmpeglib_FFmpegJNI_runFFmpegSync(JNIEnv *env, jobject thiz, jobjectArray args) {
+Java_com_mzgs_ffmpegx_FFmpegJNI_runFFmpegSync(JNIEnv *env, jobject thiz, jobjectArray args) {
     int argc = (*env)->GetArrayLength(env, args) + 1;
     char **argv = (char **)malloc(sizeof(char *) * argc);
     

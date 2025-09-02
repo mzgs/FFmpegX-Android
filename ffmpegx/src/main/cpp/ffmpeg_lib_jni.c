@@ -24,7 +24,7 @@ static void* ffmpeg_handle = NULL;
 static int (*ffmpeg_run_ptr)(int, char**) = NULL;
 
 JNIEXPORT jboolean JNICALL
-Java_com_mzgs_ffmpeglib_FFmpegJNI_nativeLoadFFmpeg(JNIEnv *env, jobject thiz, jstring libPath) {
+Java_com_mzgs_ffmpegx_FFmpegJNI_nativeLoadFFmpeg(JNIEnv *env, jobject thiz, jstring libPath) {
     const char *path = (*env)->GetStringUTFChars(env, libPath, NULL);
     
     LOGI("Loading FFmpeg shared library from: %s", path);
@@ -76,7 +76,7 @@ Java_com_mzgs_ffmpeglib_FFmpegJNI_nativeLoadFFmpeg(JNIEnv *env, jobject thiz, js
 }
 
 JNIEXPORT jint JNICALL
-Java_com_mzgs_ffmpeglib_FFmpegJNI_nativeRunCommand(JNIEnv *env, jobject thiz, jobjectArray args) {
+Java_com_mzgs_ffmpegx_FFmpegJNI_nativeRunCommand(JNIEnv *env, jobject thiz, jobjectArray args) {
     if (!ffmpeg_run_ptr) {
         LOGE("FFmpeg not loaded or not a shared library");
         return -1;
@@ -119,7 +119,7 @@ Java_com_mzgs_ffmpeglib_FFmpegJNI_nativeRunCommand(JNIEnv *env, jobject thiz, jo
 
 // Alternative: Direct execution without loading library
 JNIEXPORT jint JNICALL
-Java_com_mzgs_ffmpeglib_FFmpegJNI_nativeExecuteDirect(JNIEnv *env, jobject thiz, 
+Java_com_mzgs_ffmpegx_FFmpegJNI_nativeExecuteDirect(JNIEnv *env, jobject thiz, 
                                                        jstring binaryPath, jobjectArray args) {
     const char *path = (*env)->GetStringUTFChars(env, binaryPath, NULL);
     int argc = (*env)->GetArrayLength(env, args);
@@ -179,7 +179,7 @@ Java_com_mzgs_ffmpeglib_FFmpegJNI_nativeExecuteDirect(JNIEnv *env, jobject thiz,
 }
 
 JNIEXPORT void JNICALL
-Java_com_mzgs_ffmpeglib_FFmpegJNI_nativeUnloadFFmpeg(JNIEnv *env, jobject thiz) {
+Java_com_mzgs_ffmpegx_FFmpegJNI_nativeUnloadFFmpeg(JNIEnv *env, jobject thiz) {
     if (ffmpeg_handle) {
         dlclose(ffmpeg_handle);
         ffmpeg_handle = NULL;

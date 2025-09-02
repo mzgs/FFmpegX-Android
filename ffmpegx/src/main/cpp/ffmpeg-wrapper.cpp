@@ -16,7 +16,7 @@ extern "C" {
 
 // Method 1: Direct execution with proper setup
 JNIEXPORT jint JNICALL
-Java_com_mzgs_ffmpeglib_FFmpegJNI_executeCommand(
+Java_com_mzgs_ffmpegx_FFmpegJNI_executeCommand(
         JNIEnv *env,
         jobject /* this */,
         jstring binaryPath,
@@ -67,7 +67,7 @@ Java_com_mzgs_ffmpeglib_FFmpegJNI_executeCommand(
 
 // Method 2: Load and execute as library
 JNIEXPORT jint JNICALL
-Java_com_mzgs_ffmpeglib_FFmpegJNI_loadAndExecute(
+Java_com_mzgs_ffmpegx_FFmpegJNI_loadAndExecute(
         JNIEnv *env,
         jobject /* this */,
         jstring libraryPath,
@@ -133,7 +133,7 @@ Java_com_mzgs_ffmpeglib_FFmpegJNI_loadAndExecute(
 
 // Simple version check
 JNIEXPORT jstring JNICALL
-Java_com_mzgs_ffmpeglib_FFmpegJNI_getVersion(
+Java_com_mzgs_ffmpegx_FFmpegJNI_getVersion(
         JNIEnv *env,
         jobject /* this */) {
     return env->NewStringUTF("FFmpeg Android Wrapper 1.0");

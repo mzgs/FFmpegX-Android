@@ -31,7 +31,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
 }
 
 JNIEXPORT void JNICALL
-Java_com_mzgs_ffmpeglib_FFmpegWrapper_nativeInit(JNIEnv *env, jobject thiz, jobject callback) {
+Java_com_mzgs_ffmpegx_FFmpegWrapper_nativeInit(JNIEnv *env, jobject thiz, jobject callback) {
     if (g_callback) {
         (*env)->DeleteGlobalRef(env, g_callback);
     }
@@ -45,7 +45,7 @@ Java_com_mzgs_ffmpeglib_FFmpegWrapper_nativeInit(JNIEnv *env, jobject thiz, jobj
 }
 
 JNIEXPORT jint JNICALL
-Java_com_mzgs_ffmpeglib_FFmpegWrapper_nativeExecute(JNIEnv *env, jobject thiz, 
+Java_com_mzgs_ffmpegx_FFmpegWrapper_nativeExecute(JNIEnv *env, jobject thiz, 
                                                      jstring binaryPath, jstring command) {
     const char *path = (*env)->GetStringUTFChars(env, binaryPath, NULL);
     const char *cmd = (*env)->GetStringUTFChars(env, command, NULL);
@@ -135,7 +135,7 @@ Java_com_mzgs_ffmpeglib_FFmpegWrapper_nativeExecute(JNIEnv *env, jobject thiz,
 }
 
 JNIEXPORT void JNICALL
-Java_com_mzgs_ffmpeglib_FFmpegWrapper_nativeCleanup(JNIEnv *env, jobject thiz) {
+Java_com_mzgs_ffmpegx_FFmpegWrapper_nativeCleanup(JNIEnv *env, jobject thiz) {
     if (g_callback) {
         (*env)->DeleteGlobalRef(env, g_callback);
         g_callback = NULL;
