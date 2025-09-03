@@ -89,20 +89,30 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
 }
 
-// Skip FFmpeg build for now on JitPack due to file size issues
-// The libraries should be pre-built and checked in or use Git LFS
+// Task to download pre-built FFmpeg libraries
+tasks.register<Exec>("downloadFFmpegLibs") {
+    val downloadScript = File(rootDir, "download-ffmpeg-libs.sh")
+    val libsExist = File(projectDir, "src/main/cpp/ffmpeg-libs/arm64-v8a/lib/libavcodec.a").exists()
+    
+    onlyIf {
+        !libsExist // Only download if libraries don't exist
+    }
+    
+    commandLine("bash", downloadScript.absolutePath)
+    
+    doFirst {
+        println("Downloading pre-built FFmpeg libraries...")
+        downloadScript.setExecutable(true)
+    }
+}
 
 // Hook the build process
 tasks.named("preBuild").configure {
-    // Check if FFmpeg libraries exist
     val ffmpegLibsExist = File(projectDir, "src/main/cpp/ffmpeg-libs/arm64-v8a/lib/libavcodec.a").exists()
     
-    if (!ffmpegLibsExist && System.getenv("JITPACK") != "true") {
-        // For local development only - build FFmpeg if needed
-        val buildScript = File(rootDir, "build-ffmpeg.sh")
-        if (buildScript.exists()) {
-            println("FFmpeg libraries not found. Please run: ./build-ffmpeg.sh")
-        }
+    if (!ffmpegLibsExist) {
+        // Download pre-built libraries for both local and JitPack builds
+        dependsOn("downloadFFmpegLibs")
     }
 }
 

@@ -1,11 +1,18 @@
 jdk:
   - openjdk11
 
+before_install:
+  # Install curl for downloading libraries
+  - apt-get update && apt-get install -y curl
+
 install:
-  # Skip FFmpeg build on JitPack for now - just build with pre-compiled libs
-  # The large library files issue needs to be resolved differently
+  # Make download script executable
+  - chmod +x download-ffmpeg-libs.sh
   
-  # Build the AAR without FFmpeg compilation
+  # Set environment variable for library URL (you can override this)
+  # - export FFMPEG_LIBS_URL="https://your-cdn.com/ffmpeg-android-libs.tar.gz"
+  
+  # The build.gradle.kts will automatically download libraries if needed
   - ./gradlew clean :ffmpegx:assembleRelease
   
   # Publish to Maven Local for JitPack
