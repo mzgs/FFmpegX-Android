@@ -568,6 +568,93 @@ class MainActivity : ComponentActivity() {
                         Text("Trim Video (0-5 seconds)")
                     }
                     
+                    // Apply Video Filter Button
+                    ElevatedButton(
+                        onClick = {
+                            testVideoPath?.let { path ->
+                                lifecycleScope.launch {
+                                    isProcessing = true
+                                    currentTest = "Applying Video Filter"
+                                    outputText += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                    outputText += "Applying scale filter to video...\n"
+                                    
+                                    val timestamp = System.currentTimeMillis()
+                                    val outputPath = File(cacheDir, "filtered_${timestamp}.mp4").absolutePath
+                                    
+                                    outputText += "Input: ${File(path).name}\n"
+                                    outputText += "Output: filtered_${timestamp}.mp4\n"
+                                    outputText += "Filter: scale=640:480\n"
+                                    
+                                    // Use FFmpeg with video filter
+                                    val command = "-i $path -vf scale=640:480 $outputPath"
+                                    outputText += "Command: ffmpeg $command\n"
+                                    
+                                    val success = ffmpeg.execute(
+                                        command,
+                                        object : FFmpegHelper.FFmpegCallback {
+                                            override fun onStart() {
+                                                outputText += "Starting filter operation...\n"
+                                            }
+                                            
+                                            override fun onProgress(prog: Float, time: Long) {
+                                                progress = prog / 100f
+                                            }
+                                            
+                                            override fun onOutput(line: String) {
+                                                if (line.contains("filter") || 
+                                                    line.contains("scale") ||
+                                                    line.contains("frame=") ||
+                                                    line.contains("Error")) {
+                                                    outputText += "$line\n"
+                                                }
+                                            }
+                                            
+                                            override fun onSuccess(output: String?) {
+                                                val outputFile = File(outputPath)
+                                                if (outputFile.exists() && outputFile.length() > 0) {
+                                                    val inputSize = File(path).length() / 1024
+                                                    val outputSize = outputFile.length() / 1024
+                                                    outputText += "✓ Filter applied successfully!\n"
+                                                    outputText += "  Original size: ${inputSize}KB\n"
+                                                    outputText += "  Filtered size: ${outputSize}KB\n"
+                                                    outputText += "  Resolution: 640x480\n"
+                                                    
+                                                    // Save to Downloads
+                                                    lifecycleScope.launch {
+                                                        val savedPath = saveVideoToDownloads(outputFile)
+                                                        if (savedPath != null) {
+                                                            outputText += "✓ Saved to Downloads/filtered_${timestamp}.mp4\n"
+                                                        } else {
+                                                            outputText += "⚠️ Failed to save to Downloads\n"
+                                                        }
+                                                    }
+                                                } else {
+                                                    outputText += "✗ Filter failed: Output file not created\n"
+                                                }
+                                            }
+                                            
+                                            override fun onFailure(error: String) {
+                                                outputText += "✗ Filter failed: $error\n"
+                                            }
+                                            
+                                            override fun onFinish() {
+                                                isProcessing = false
+                                                currentTest = ""
+                                                progress = 0f
+                                            }
+                                        }
+                                    )
+                                }
+                            } ?: run {
+                                outputText += "\n⚠️ Please select a video first!\n"
+                            }
+                        },
+                        enabled = !isProcessing && testVideoPath != null,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Apply Filter (Scale 640x480)")
+                    }
+                    
                     // Test FFmpeg Version Button
                     ElevatedButton(
                         onClick = {

@@ -327,6 +327,8 @@ cleanup:
 }
 
 // FFmpeg main is implemented in ffmpeg_main.c
+// Import the implementation from ffmpeg_main.c
+extern int ffmpeg_main_impl(int argc, char **argv);
 
 #else // !HAVE_FFMPEG_STATIC
 

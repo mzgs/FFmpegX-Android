@@ -86,7 +86,11 @@ if(HAVE_FFMPEG_STATIC)
         log
         android
     )
-    target_compile_definitions(ffmpeg_native_jni PRIVATE HAVE_FFMPEG_STATIC=1)
+    target_compile_definitions(ffmpeg_native_jni PRIVATE 
+        HAVE_FFMPEG_STATIC=1
+        _GNU_SOURCE=1
+        FFMPEG_CONFIGURATION=""
+        )
 else()
     # Fallback: just link with system libraries
     target_link_libraries(ffmpeg_native_jni
