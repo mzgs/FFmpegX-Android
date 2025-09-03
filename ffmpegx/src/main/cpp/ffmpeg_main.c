@@ -52,6 +52,151 @@ extern jmethodID on_progress_method;
 extern jmethodID on_output_method;
 extern jmethodID on_error_method;
 
+// Thread safety mutex for global variables
+#include <pthread.h>
+static pthread_mutex_t callback_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// Resource limits
+#define MAX_VIDEO_DIMENSION 8192
+#define MAX_BITRATE 100000000  // 100 Mbps
+#define MIN_VIDEO_DIMENSION 16
+
+// Helper function to validate video dimensions
+static int validate_video_dimensions(int width, int height, enum AVPixelFormat pix_fmt) {
+    if (width <= 0 || height <= 0) {
+        LOGE("Invalid dimensions: %dx%d", width, height);
+        return AVERROR(EINVAL);
+    }
+    
+    if (width < MIN_VIDEO_DIMENSION || height < MIN_VIDEO_DIMENSION) {
+        LOGE("Dimensions too small: %dx%d (minimum: %d)", width, height, MIN_VIDEO_DIMENSION);
+        return AVERROR(EINVAL);
+    }
+    
+    if (width > MAX_VIDEO_DIMENSION || height > MAX_VIDEO_DIMENSION) {
+        LOGE("Dimensions too large: %dx%d (maximum: %d)", width, height, MAX_VIDEO_DIMENSION);
+        return AVERROR(EINVAL);
+    }
+    
+    // Check for even dimensions for YUV420P
+    if (pix_fmt == AV_PIX_FMT_YUV420P) {
+        if (width % 2 != 0 || height % 2 != 0) {
+            LOGW("YUV420P requires even dimensions, adjusting from %dx%d", width, height);
+            // Don't fail, caller should adjust
+        }
+    }
+    
+    return 0;
+}
+
+// Helper function to find encoder with fallback
+static const AVCodec* find_encoder_with_fallback(enum AVCodecID preferred_codec) {
+    const AVCodec *encoder = NULL;
+    
+    // Try preferred codec first
+    encoder = avcodec_find_encoder(preferred_codec);
+    if (encoder) {
+        LOGI("Using preferred codec: %s", encoder->name);
+        return encoder;
+    }
+    
+    // Fallback chain based on preferred codec
+    switch (preferred_codec) {
+        case AV_CODEC_ID_H264:
+            LOGW("H264 not available, trying H265");
+            encoder = avcodec_find_encoder(AV_CODEC_ID_H265);
+            if (encoder) return encoder;
+            
+            LOGW("H265 not available, trying MPEG4");
+            encoder = avcodec_find_encoder(AV_CODEC_ID_MPEG4);
+            if (encoder) return encoder;
+            
+            LOGW("MPEG4 not available, trying VP8");
+            encoder = avcodec_find_encoder(AV_CODEC_ID_VP8);
+            if (encoder) return encoder;
+            break;
+            
+        case AV_CODEC_ID_H265:
+            LOGW("H265 not available, trying H264");
+            encoder = avcodec_find_encoder(AV_CODEC_ID_H264);
+            if (encoder) return encoder;
+            
+            LOGW("H264 not available, trying MPEG4");
+            encoder = avcodec_find_encoder(AV_CODEC_ID_MPEG4);
+            if (encoder) return encoder;
+            break;
+            
+        case AV_CODEC_ID_AAC:
+            LOGW("AAC not available, trying MP3");
+            encoder = avcodec_find_encoder(AV_CODEC_ID_MP3);
+            if (encoder) return encoder;
+            
+            LOGW("MP3 not available, trying Vorbis");
+            encoder = avcodec_find_encoder(AV_CODEC_ID_VORBIS);
+            if (encoder) return encoder;
+            break;
+            
+        case AV_CODEC_ID_MP3:
+            // Try libmp3lame first
+            encoder = avcodec_find_encoder_by_name("libmp3lame");
+            if (encoder) return encoder;
+            
+            LOGW("MP3 not available, trying AAC");
+            encoder = avcodec_find_encoder(AV_CODEC_ID_AAC);
+            if (encoder) return encoder;
+            break;
+            
+        default:
+            // For other codecs, try some common alternatives
+            LOGW("Codec %d not available, trying H264", preferred_codec);
+            encoder = avcodec_find_encoder(AV_CODEC_ID_H264);
+            if (encoder) return encoder;
+            
+            LOGW("H264 not available, trying MPEG4");
+            encoder = avcodec_find_encoder(AV_CODEC_ID_MPEG4);
+            if (encoder) return encoder;
+            break;
+    }
+    
+    // Last resort - try any available video encoder
+    if (preferred_codec != AV_CODEC_ID_AAC && preferred_codec != AV_CODEC_ID_MP3) {
+        LOGW("No suitable video encoder found, trying any available");
+        static const enum AVCodecID video_codecs[] = {
+            AV_CODEC_ID_H264, AV_CODEC_ID_H265, AV_CODEC_ID_MPEG4,
+            AV_CODEC_ID_VP8, AV_CODEC_ID_VP9, AV_CODEC_ID_MPEG2VIDEO,
+            AV_CODEC_ID_MJPEG, AV_CODEC_ID_NONE
+        };
+        
+        for (int i = 0; video_codecs[i] != AV_CODEC_ID_NONE; i++) {
+            encoder = avcodec_find_encoder(video_codecs[i]);
+            if (encoder) {
+                LOGW("Using fallback codec: %s", encoder->name);
+                return encoder;
+            }
+        }
+    }
+    
+    LOGE("No suitable encoder found");
+    return NULL;
+}
+
+// Helper function to adjust dimensions for codec requirements
+static void adjust_dimensions_for_codec(int *width, int *height, enum AVPixelFormat pix_fmt) {
+    // Ensure even dimensions for YUV420P
+    if (pix_fmt == AV_PIX_FMT_YUV420P) {
+        if (*width % 2 != 0) (*width)--;
+        if (*height % 2 != 0) (*height)--;
+    }
+    
+    // Ensure minimum dimensions
+    if (*width < MIN_VIDEO_DIMENSION) *width = MIN_VIDEO_DIMENSION;
+    if (*height < MIN_VIDEO_DIMENSION) *height = MIN_VIDEO_DIMENSION;
+    
+    // Ensure maximum dimensions
+    if (*width > MAX_VIDEO_DIMENSION) *width = MAX_VIDEO_DIMENSION;
+    if (*height > MAX_VIDEO_DIMENSION) *height = MAX_VIDEO_DIMENSION;
+}
+
 // Custom log callback
 static void ffmpeg_log_callback(void *ptr, int level, const char *fmt, va_list vargs) {
     char line[1024];
@@ -79,7 +224,8 @@ static void ffmpeg_log_callback(void *ptr, int level, const char *fmt, va_list v
             break;
     }
     
-    // Send to Java callback if available
+    // Send to Java callback if available (with thread safety)
+    pthread_mutex_lock(&callback_mutex);
     if (java_vm && java_callback && on_output_method) {
         JNIEnv *env = NULL;
         int attached = 0;
@@ -92,14 +238,17 @@ static void ffmpeg_log_callback(void *ptr, int level, const char *fmt, va_list v
         
         if (env) {
             jstring jstr = (*env)->NewStringUTF(env, line);
-            (*env)->CallVoidMethod(env, java_callback, on_output_method, jstr);
-            (*env)->DeleteLocalRef(env, jstr);
+            if (jstr) {
+                (*env)->CallVoidMethod(env, java_callback, on_output_method, jstr);
+                (*env)->DeleteLocalRef(env, jstr);
+            }
             
             if (attached) {
                 (*java_vm)->DetachCurrentThread(java_vm);
             }
         }
     }
+    pthread_mutex_unlock(&callback_mutex);
 }
 
 // Trim video function
@@ -239,15 +388,31 @@ static int trim_video(const char *input_file, const char *output_file, double st
             start_dts[stream_index] = pkt.dts;
         }
         
-        // Adjust PTS/DTS
-        pkt.pts = av_rescale_q_rnd(pkt.pts - start_pts[stream_index], 
-                                   in_stream->time_base, 
-                                   out_stream->time_base, 
-                                   AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
-        pkt.dts = av_rescale_q_rnd(pkt.dts - start_dts[stream_index], 
-                                   in_stream->time_base, 
-                                   out_stream->time_base, 
-                                   AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
+        // Adjust PTS/DTS with overflow protection
+        if (pkt.pts != AV_NOPTS_VALUE && start_pts[stream_index] != -1) {
+            if (pkt.pts >= start_pts[stream_index]) {
+                pkt.pts = av_rescale_q_rnd(pkt.pts - start_pts[stream_index], 
+                                           in_stream->time_base, 
+                                           out_stream->time_base, 
+                                           AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
+            } else {
+                // Skip packets with PTS before start
+                av_packet_unref(&pkt);
+                continue;
+            }
+        }
+        
+        if (pkt.dts != AV_NOPTS_VALUE && start_dts[stream_index] != -1) {
+            if (pkt.dts >= start_dts[stream_index]) {
+                pkt.dts = av_rescale_q_rnd(pkt.dts - start_dts[stream_index], 
+                                           in_stream->time_base, 
+                                           out_stream->time_base, 
+                                           AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
+            } else {
+                pkt.dts = 0; // Reset to 0 if negative
+            }
+        }
+        
         pkt.duration = av_rescale_q(pkt.duration, in_stream->time_base, out_stream->time_base);
         pkt.pos = -1;
         pkt.stream_index = stream_mapping[stream_index];
@@ -1005,7 +1170,13 @@ static int process_with_complex_filter(int argc, char **argv) {
     
     if (!filter_str || !output_file || nb_inputs == 0) {
         LOGE("Missing required arguments for complex filter");
-        return -1;
+        return AVERROR(EINVAL);
+    }
+    
+    // Check for excessive number of inputs
+    if (nb_inputs > 10) {
+        LOGE("Too many inputs (%d), maximum supported is 10", nb_inputs);
+        return AVERROR(EINVAL);
     }
     
     // Allocate arrays
@@ -1017,6 +1188,7 @@ static int process_with_complex_filter(int argc, char **argv) {
     
     if (!input_files || !input_contexts || !buffersrc_ctxs || !dec_ctxs || !stream_indices) {
         ret = AVERROR(ENOMEM);
+        LOGE("Failed to allocate arrays for %d inputs", nb_inputs);
         goto cleanup;
     }
     
@@ -1367,16 +1539,16 @@ static int process_with_complex_filter(int argc, char **argv) {
     ret = 0;
     
 cleanup:
-    // Clean up
-    av_frame_free(&filt_frame);
-    av_frame_free(&frame);
-    av_packet_free(&packet);
+    // Clean up - handle partial allocations safely
+    if (filt_frame) av_frame_free(&filt_frame);
+    if (frame) av_frame_free(&frame);
+    if (packet) av_packet_free(&packet);
     
     if (filter_graph) {
         avfilter_graph_free(&filter_graph);
     }
     
-    if (dec_ctxs) {
+    if (dec_ctxs && nb_inputs > 0) {
         for (int i = 0; i < nb_inputs; i++) {
             if (dec_ctxs[i]) {
                 avcodec_free_context(&dec_ctxs[i]);
@@ -1385,7 +1557,7 @@ cleanup:
         av_free(dec_ctxs);
     }
     
-    if (input_contexts) {
+    if (input_contexts && nb_inputs > 0) {
         for (int i = 0; i < nb_inputs; i++) {
             if (input_contexts[i]) {
                 avformat_close_input(&input_contexts[i]);
@@ -1395,15 +1567,15 @@ cleanup:
     }
     
     if (output_ctx) {
-        if (!(output_ctx->oformat->flags & AVFMT_NOFILE)) {
+        if (output_ctx->pb && !(output_ctx->oformat->flags & AVFMT_NOFILE)) {
             avio_closep(&output_ctx->pb);
         }
         avformat_free_context(output_ctx);
     }
     
-    av_free(buffersrc_ctxs);
-    av_free(stream_indices);
-    av_free(input_files);
+    if (buffersrc_ctxs) av_free(buffersrc_ctxs);
+    if (stream_indices) av_free(stream_indices);
+    if (input_files) av_free(input_files);
     
     return ret;
 }
@@ -1498,10 +1670,10 @@ static int scale_video(const char *input_file, const char *output_file, int targ
         goto end;
     }
     
-    // Find and open encoder
-    encoder = avcodec_find_encoder(AV_CODEC_ID_H264);
+    // Find and open encoder with fallback
+    encoder = find_encoder_with_fallback(AV_CODEC_ID_H264);
     if (!encoder) {
-        LOGE("H264 encoder not found");
+        LOGE("No suitable encoder found");
         ret = AVERROR_ENCODER_NOT_FOUND;
         goto end;
     }
@@ -1784,6 +1956,9 @@ static int process_video_with_filters(const char *input_file, const char *output
             LOGI("Found CRF option: %s", crf_value);
         } else if (strcmp(argv[i], "-b:v") == 0 && i + 1 < argc) {
             custom_bitrate = atoi(argv[i + 1]);
+            if (custom_bitrate > MAX_BITRATE) {
+                LOGW("Requested bitrate %d exceeds maximum %d, will be capped", custom_bitrate, MAX_BITRATE);
+            }
             LOGI("Found video bitrate: %d", custom_bitrate);
         } else if (strcmp(argv[i], "-c:v") == 0 && i + 1 < argc) {
             video_codec_name = argv[i + 1];
@@ -1907,7 +2082,15 @@ static int process_video_with_filters(const char *input_file, const char *output
         LOGI("Transpose detected: output dimensions will be %dx%d", output_width, output_height);
     }
     
-    // Set encoder parameters
+    // Set encoder parameters with dimension validation
+    adjust_dimensions_for_codec(&output_width, &output_height, AV_PIX_FMT_YUV420P);
+    
+    ret = validate_video_dimensions(output_width, output_height, AV_PIX_FMT_YUV420P);
+    if (ret < 0) {
+        LOGE("Invalid output dimensions after adjustment");
+        goto end;
+    }
+    
     enc_ctx->width = output_width;
     enc_ctx->height = output_height;
     enc_ctx->sample_aspect_ratio = dec_ctx->sample_aspect_ratio;
@@ -1942,8 +2125,16 @@ static int process_video_with_filters(const char *input_file, const char *output
          enc_ctx->time_base.num, enc_ctx->time_base.den,
          enc_ctx->framerate.num, enc_ctx->framerate.den);
     
-    // Use custom bitrate if specified, otherwise default
-    enc_ctx->bit_rate = custom_bitrate > 0 ? custom_bitrate : 2000000;
+    // Use custom bitrate if specified, otherwise default (with validation)
+    if (custom_bitrate > 0) {
+        if (custom_bitrate > MAX_BITRATE) {
+            LOGW("Bitrate %d exceeds maximum %d, capping", custom_bitrate, MAX_BITRATE);
+            custom_bitrate = MAX_BITRATE;
+        }
+        enc_ctx->bit_rate = custom_bitrate;
+    } else {
+        enc_ctx->bit_rate = 2000000; // Default 2 Mbps
+    }
     enc_ctx->gop_size = 12;
     enc_ctx->max_b_frames = 0; // Disable B-frames to avoid timestamp issues
     
@@ -2085,10 +2276,11 @@ static int process_video_with_filters(const char *input_file, const char *output
                 const char *last_bracket = strrchr(filter_str, '[');
                 if (last_bracket && strchr(last_bracket, ']')) {
                     // Has output label, connect it to our sink
-                    strcpy(modified_filter, filter_str);
+                    strncpy(modified_filter, filter_str, strlen(filter_str) * 2 + 99);
+                    modified_filter[strlen(filter_str) * 2 + 99] = '\0';
                 } else {
                     // No output label, add one
-                    sprintf(modified_filter, "%s[out]", filter_str);
+                    snprintf(modified_filter, strlen(filter_str) * 2 + 100, "%s[out]", filter_str);
                 }
                 
                 // Set up the connections
