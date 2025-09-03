@@ -1,32 +1,59 @@
-# FFmpegLib for Android
+# FFmpegX-Android
 
-A powerful, standalone FFmpeg library for Android that works on all Android versions including Android 10+ without root access. This library provides a complete FFmpeg implementation with extensive codec support, hardware acceleration, and a simple Kotlin API.
+A powerful, standalone FFmpeg library for Android that works on all Android versions including Android 10+ without root access. This library provides a complete FFmpeg 6.0 implementation with extensive codec support, hardware acceleration, and a simple Kotlin API.
+
+[![](https://jitpack.io/v/mzgs/FFmpegX-Android.svg)](https://jitpack.io/#mzgs/FFmpegX-Android)
 
 ## ✨ Features
 
-✅ **Android 10+ Support** - Works on Android 10, 11, 12, 13, 14+ using JNI wrapper approach  
+✅ **Android 10+ Support** - Works on Android 10, 11, 12, 13, 14, 15+ using JNI wrapper approach  
 ✅ **No External Dependencies** - Self-contained library with built-in FFmpeg binaries  
-✅ **Extensive Codec Support** - H.264, H.265, VP8/VP9, MPEG4, AAC, MP3, Opus, and more  
+✅ **Extensive Codec Support** - H.264, H.265, VP8/VP9, MPEG4, AAC, MP3, LAME, Opus, and more  
 ✅ **Hardware Acceleration** - MediaCodec support for faster encoding/decoding  
 ✅ **300+ Filters** - All major video and audio filters included  
 ✅ **Network Protocols** - HTTP, HTTPS, RTMP, HLS streaming support  
 ✅ **Kotlin Coroutines** - Modern async API with suspend functions  
 ✅ **Progress Tracking** - Real-time progress callbacks for long operations  
 ✅ **Session Management** - Cancel and manage multiple FFmpeg operations  
+✅ **Automatic Library Download** - FFmpeg libraries are downloaded automatically from GitHub Release  
 
 ## 🚀 Quick Start
 
 ### Installation
 
-1. Add the library module to your project in `settings.gradle.kts`:
+#### Option 1: JitPack (Recommended)
+
+1. Add JitPack repository to your root `build.gradle.kts` or `settings.gradle.kts`:
 ```kotlin
-include(":FFMpegLib")
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
+}
 ```
 
 2. Add dependency to your app's `build.gradle.kts`:
 ```kotlin
 dependencies {
-    implementation(project(":FFMpegLib"))
+    implementation("com.github.mzgs:FFmpegX-Android:v2.0.2")
+}
+```
+
+#### Option 2: Local Module
+
+1. Clone the repository and add the library module to your project in `settings.gradle.kts`:
+```kotlin
+include(":ffmpegx")
+project(":ffmpegx").projectDir = File("path/to/FFmpegX-Android/ffmpegx")
+```
+
+2. Add dependency to your app's `build.gradle.kts`:
+```kotlin
+dependencies {
+    implementation(project(":ffmpegx"))
 }
 ```
 
@@ -353,21 +380,24 @@ lifecycleScope.launch {
 ┌──────────▼──────────┐
 │    JNI Layer        │
 ├─────────────────────┤
-│ • FFmpegJNI.kt      │  ← Kotlin JNI interface
-│ • FFmpegWrapper.kt  │  ← Native wrapper
+│ • FFmpegNative      │  ← Native FFmpeg integration
+│ • FFmpegTranscoder  │  ← Hardware transcoding
+│ • MediaCodec        │  ← Hardware acceleration
 └──────────┬──────────┘
            │
 ┌──────────▼──────────┐
 │   Native Layer      │
 ├─────────────────────┤
-│ • ffmpeg_lib_jni.c  │  ← JNI implementation
-│ • ffmpeg_wrapper.c  │  ← Popen wrapper for Android 10+
+│ • Static FFmpeg 6.0 │  ← Linked FFmpeg libraries
+│ • LAME MP3 Encoder  │  ← High-quality MP3
+│ • MediaCodec H/W    │  ← Hardware codecs
 └──────────┬──────────┘
            │
 ┌──────────▼──────────┐
-│  FFmpeg Binary      │  ← Static FFmpeg executable
-│  • arm64-v8a: 21MB  │     with all codecs
-│  • armeabi-v7a: 19MB│     and filters
+│  FFmpeg Libraries   │  ← Auto-downloaded from
+│  • libavcodec       │     GitHub Release
+│  • libavformat      │     (103MB compressed)
+│  • libavfilter      │     Cached locally
 └─────────────────────┘
 ```
 
@@ -401,14 +431,14 @@ Add to your `AndroidManifest.xml`:
 | Type | Codecs |
 |------|--------|
 | **Decoders** | H.264, H.265/HEVC, VP8, VP9, MPEG4, MJPEG, PNG, GIF, WebP |
-| **Encoders** | MPEG4, MJPEG, PNG, GIF |
-| **Hardware** | MediaCodec for H.264, H.265, VP8, VP9 (decode only) |
+| **Encoders** | libx264, MPEG4, MJPEG, PNG, GIF |
+| **Hardware** | MediaCodec for H.264, H.265, VP8, VP9 (encode/decode) |
 
 ### Audio
 | Type | Codecs |
 |------|--------|
 | **Decoders** | AAC, MP3, Opus, Vorbis, FLAC, WAV, WMA, AC3, DTS |
-| **Encoders** | AAC, MP3, Opus, Vorbis, FLAC, WAV |
+| **Encoders** | AAC, libmp3lame (MP3), libfdk_aac, Opus, Vorbis, FLAC, WAV |
 
 ### Container Formats
 | Input | Output |
@@ -463,18 +493,35 @@ android {
 
 ## 🔧 Building Custom FFmpeg
 
-To build FFmpeg with different codec support:
+The library automatically downloads pre-built FFmpeg libraries from GitHub Release on first build. To build custom FFmpeg:
 
 ```bash
+# Clone the repository
+git clone https://github.com/mzgs/FFmpegX-Android.git
+cd FFmpegX-Android
+
 # Edit build configuration
-nano build-ffmpeg-full.sh
+nano build-ffmpeg.sh
 
 # Run build (requires NDK)
-./build-ffmpeg-full.sh
+./build-ffmpeg.sh
 
-# Output location
-FFMpegLib/src/main/assets/ffmpeg/
+# Create release package
+./create-library-release.sh
+
+# Libraries location
+ffmpegx/src/main/cpp/ffmpeg-libs/
+ffmpegx/src/main/cpp/lame-libs/
 ```
+
+### Pre-built Libraries Include:
+- FFmpeg 6.0 with GPL license
+- LAME MP3 encoder (high quality)
+- x264 H.264 encoder
+- FDK-AAC encoder
+- OpenSSL for HTTPS support
+- MediaCodec hardware acceleration
+- All standard codecs and filters
 
 ## 📝 Example App
 
@@ -498,25 +545,28 @@ Contributions are welcome! Please:
 
 ## 📄 License
 
-This library is provided as-is for educational purposes. FFmpeg is licensed under LGPL/GPL.
-- You must comply with FFmpeg's license when distributing your app
+This library uses FFmpeg compiled with GPL license (includes x264, LAME, FDK-AAC).
+- You must comply with GPL license when distributing your app
 - See [FFmpeg License](https://ffmpeg.org/legal.html) for details
-- Consider legal implications for commercial use
+- For commercial use, consider building FFmpeg without GPL components
+- The library wrapper code is provided as-is for educational purposes
 
 ## 🔗 Resources
 
 - [FFmpeg Documentation](https://ffmpeg.org/documentation.html)
 - [FFmpeg Filters](https://ffmpeg.org/ffmpeg-filters.html)
 - [Android NDK](https://developer.android.com/ndk)
-- [Issue Tracker](https://github.com/yourusername/FFmpegLib/issues)
+- [Issue Tracker](https://github.com/mzgs/FFmpegX-Android/issues)
+- [JitPack Build Status](https://jitpack.io/#mzgs/FFmpegX-Android)
 
 ## 💡 Credits
 
 Built with ❤️ using:
-- FFmpeg 6.0
+- FFmpeg 6.0 (GPL build with x264, LAME, FDK-AAC)
 - Android NDK r27
 - Kotlin Coroutines
 - JNI for Android 10+ compatibility
+- Automatic library download from GitHub Release
 
 ---
 
