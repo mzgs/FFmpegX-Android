@@ -1,1 +1,7 @@
+# Track large FFmpeg library files with Git LFS
 ffmpegx/src/main/cpp/ffmpeg-libs/**/*.a filter=lfs diff=lfs merge=lfs -text
+ffmpegx/src/main/cpp/lame-libs/**/*.a filter=lfs diff=lfs merge=lfs -text
+
+# Track other large binary files
+*.so filter=lfs diff=lfs merge=lfs -text
+*.dylib filter=lfs diff=lfs merge=lfs -text

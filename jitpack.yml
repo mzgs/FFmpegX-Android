@@ -1,0 +1,30 @@
+jdk:
+  - openjdk17
+
+before_install:
+  # Install required build tools for FFmpeg compilation
+  - apt-get update
+  - apt-get install -y build-essential autoconf automake libtool pkg-config git curl
+  
+  # Install CMake (required for native C++ compilation in your project)
+  - yes | sdkmanager "cmake;3.22.1"
+  
+  # Ensure NDK is available (JitPack usually has it, but let's be explicit)
+  - yes | sdkmanager "ndk;27.0.12077973" || yes | sdkmanager "ndk;25.1.8937393"
+
+install:
+  # Make build script executable
+  - chmod +x build-ffmpeg.sh
+  
+  # Set NDK path environment variable
+  - export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$(ls -1 $ANDROID_HOME/ndk | head -n1)
+  
+  # Build FFmpeg libraries (this will take time but JitPack caches builds)
+  - ./build-ffmpeg.sh
+  
+  # Build the AAR
+  - ./gradlew :ffmpegx:assembleRelease
+  - ./gradlew :ffmpegx:publishToMavenLocal
+
+  # Copy the built AAR to the expected location for JitPack
+  - find . -name "*.aar" -exec cp {} . \;

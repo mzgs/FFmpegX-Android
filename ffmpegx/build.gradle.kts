@@ -89,14 +89,42 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
 }
 
-// Apply the download script
-apply(from = "download_ffmpeg.gradle.kts")
+// Build FFmpeg task for JitPack
+tasks.register<Exec>("buildFFmpegLibraries") {
+    val buildScript = File(rootDir, "build-ffmpeg.sh")
+    val libsExist = File(projectDir, "src/main/cpp/ffmpeg-libs/arm64-v8a/lib/libavcodec.a").exists()
+    
+    onlyIf {
+        // Build only if libraries don't exist (for JitPack)
+        !libsExist || System.getenv("JITPACK") == "true"
+    }
+    
+    commandLine("bash", buildScript.absolutePath)
+    
+    doFirst {
+        println("Building FFmpeg libraries for JitPack...")
+        // Ensure script is executable
+        buildScript.setExecutable(true)
+    }
+    
+    doLast {
+        println("FFmpeg libraries built successfully")
+    }
+}
 
-// Only download FFmpeg binaries if they don't exist
+// Hook the build process
 tasks.named("preBuild").configure {
-    val markerFile = File(projectDir, "src/main/assets/ffmpeg/.downloaded")
-    if (!markerFile.exists()) {
-        dependsOn("downloadFFmpegBinaries")
+    if (System.getenv("JITPACK") == "true") {
+        // On JitPack, build FFmpeg from source
+        dependsOn("buildFFmpegLibraries")
+    } else {
+        // For local development, optionally download pre-built binaries
+        val markerFile = File(projectDir, "src/main/assets/ffmpeg/.downloaded")
+        if (!markerFile.exists() && File(rootDir, "download_ffmpeg.gradle.kts").exists()) {
+            // Apply the download script if it exists
+            rootProject.apply(from = "download_ffmpeg.gradle.kts")
+            dependsOn("downloadFFmpegBinaries")
+        }
     }
 }
 
