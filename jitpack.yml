@@ -1,9 +1,9 @@
 jdk:
-  - openjdk11
+  - openjdk17
 
 before_install:
-  # Install curl for downloading libraries
-  - apt-get update && apt-get install -y curl
+  # Install curl for downloading libraries (skip apt-get due to permissions)
+  # curl is already available in JitPack environment
 
 install:
   # Make download script executable
