@@ -15,9 +15,9 @@
 local.properties
 .DS_Store
 
-# FFmpeg prebuilt libraries (too large for GitHub)
-ffmpegx/src/main/cpp/ffmpeg-libs/**/*.a
-ffmpegx/src/main/cpp/ffmpeg-libs/**/*.so
+# FFmpeg pre-built libraries (downloaded automatically from GitHub Release)
+ffmpegx/src/main/cpp/ffmpeg-libs/
+ffmpegx/src/main/cpp/lame-libs/
 
 # Build outputs
 app/build/
