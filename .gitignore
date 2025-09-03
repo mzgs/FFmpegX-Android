@@ -14,3 +14,11 @@
 .cxx
 local.properties
 .DS_Store
+
+# FFmpeg prebuilt libraries (too large for GitHub)
+ffmpegx/src/main/cpp/ffmpeg-libs/**/*.a
+ffmpegx/src/main/cpp/ffmpeg-libs/**/*.so
+
+# Build outputs
+app/build/
+ffmpegx/build/
