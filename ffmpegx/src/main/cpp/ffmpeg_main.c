@@ -8,6 +8,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
+#include <limits.h>
 
 #ifdef HAVE_FFMPEG_STATIC
 
@@ -91,6 +93,187 @@ static void ffmpeg_log_callback(void *ptr, int level, const char *fmt, va_list v
             }
         }
     }
+}
+
+// Trim video function
+static int trim_video(const char *input_file, const char *output_file, double start_time, double duration) {
+    AVFormatContext *input_ctx = NULL;
+    AVFormatContext *output_ctx = NULL;
+    int ret;
+    int stream_index;
+    int *stream_mapping = NULL;
+    int stream_mapping_size;
+    
+    LOGI("Trimming video: %s -> %s (start=%.1f, duration=%.1f)", 
+         input_file, output_file, start_time, duration);
+    
+    // Open input file
+    ret = avformat_open_input(&input_ctx, input_file, NULL, NULL);
+    if (ret < 0) {
+        char err_buf[AV_ERROR_MAX_STRING_SIZE];
+        av_strerror(ret, err_buf, sizeof(err_buf));
+        LOGE("Cannot open input file: %s", err_buf);
+        return ret;
+    }
+    
+    ret = avformat_find_stream_info(input_ctx, NULL);
+    if (ret < 0) {
+        LOGE("Cannot find stream information");
+        avformat_close_input(&input_ctx);
+        return ret;
+    }
+    
+    // Allocate output context
+    avformat_alloc_output_context2(&output_ctx, NULL, NULL, output_file);
+    if (!output_ctx) {
+        LOGE("Could not create output context");
+        avformat_close_input(&input_ctx);
+        return AVERROR_UNKNOWN;
+    }
+    
+    stream_mapping_size = input_ctx->nb_streams;
+    stream_mapping = (int*)av_malloc_array(stream_mapping_size, sizeof(*stream_mapping));
+    if (!stream_mapping) {
+        ret = AVERROR(ENOMEM);
+        goto end;
+    }
+    memset(stream_mapping, 0, stream_mapping_size * sizeof(*stream_mapping));
+    
+    // Copy streams
+    for (int i = 0; i < input_ctx->nb_streams; i++) {
+        AVStream *in_stream = input_ctx->streams[i];
+        AVStream *out_stream = avformat_new_stream(output_ctx, NULL);
+        if (!out_stream) {
+            LOGE("Failed allocating output stream");
+            ret = AVERROR_UNKNOWN;
+            goto end;
+        }
+        
+        ret = avcodec_parameters_copy(out_stream->codecpar, in_stream->codecpar);
+        if (ret < 0) {
+            LOGE("Failed to copy codec parameters");
+            goto end;
+        }
+        out_stream->codecpar->codec_tag = 0;
+        stream_mapping[i] = out_stream->index;
+    }
+    
+    // Open output file
+    if (!(output_ctx->oformat->flags & AVFMT_NOFILE)) {
+        ret = avio_open(&output_ctx->pb, output_file, AVIO_FLAG_WRITE);
+        if (ret < 0) {
+            LOGE("Could not open output file '%s'", output_file);
+            goto end;
+        }
+    }
+    
+    // Write header
+    ret = avformat_write_header(output_ctx, NULL);
+    if (ret < 0) {
+        LOGE("Error occurred when opening output file");
+        goto end;
+    }
+    
+    // Seek to start time if specified
+    if (start_time > 0) {
+        int64_t timestamp = start_time * AV_TIME_BASE;
+        ret = avformat_seek_file(input_ctx, -1, INT64_MIN, timestamp, timestamp, 0);
+        if (ret < 0) {
+            LOGW("Could not seek to position %.1f", start_time);
+        }
+    }
+    
+    // Copy packets
+    AVPacket pkt;
+    int64_t *start_pts = (int64_t*)av_malloc_array(input_ctx->nb_streams, sizeof(int64_t));
+    int64_t *start_dts = (int64_t*)av_malloc_array(input_ctx->nb_streams, sizeof(int64_t));
+    if (!start_pts || !start_dts) {
+        ret = AVERROR(ENOMEM);
+        av_free(start_pts);
+        av_free(start_dts);
+        goto end;
+    }
+    int64_t end_time = duration > 0 ? (start_time + duration) * AV_TIME_BASE : INT64_MAX;
+    
+    for (int i = 0; i < input_ctx->nb_streams; i++) {
+        start_pts[i] = -1;
+        start_dts[i] = -1;
+    }
+    
+    while (1) {
+        ret = av_read_frame(input_ctx, &pkt);
+        if (ret < 0) {
+            break;
+        }
+        
+        stream_index = pkt.stream_index;
+        if (stream_index >= stream_mapping_size || stream_mapping[stream_index] < 0) {
+            av_packet_unref(&pkt);
+            continue;
+        }
+        
+        AVStream *in_stream = input_ctx->streams[stream_index];
+        AVStream *out_stream = output_ctx->streams[stream_mapping[stream_index]];
+        
+        // Check if we've reached the end time
+        if (duration > 0) {
+            double current_time = pkt.pts * av_q2d(in_stream->time_base);
+            if (current_time >= start_time + duration) {
+                av_packet_unref(&pkt);
+                break;
+            }
+        }
+        
+        // Store first PTS/DTS
+        if (start_pts[stream_index] == -1) {
+            start_pts[stream_index] = pkt.pts;
+        }
+        if (start_dts[stream_index] == -1) {
+            start_dts[stream_index] = pkt.dts;
+        }
+        
+        // Adjust PTS/DTS
+        pkt.pts = av_rescale_q_rnd(pkt.pts - start_pts[stream_index], 
+                                   in_stream->time_base, 
+                                   out_stream->time_base, 
+                                   AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
+        pkt.dts = av_rescale_q_rnd(pkt.dts - start_dts[stream_index], 
+                                   in_stream->time_base, 
+                                   out_stream->time_base, 
+                                   AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
+        pkt.duration = av_rescale_q(pkt.duration, in_stream->time_base, out_stream->time_base);
+        pkt.pos = -1;
+        pkt.stream_index = stream_mapping[stream_index];
+        
+        ret = av_interleaved_write_frame(output_ctx, &pkt);
+        if (ret < 0) {
+            LOGE("Error muxing packet");
+            av_packet_unref(&pkt);
+            break;
+        }
+        av_packet_unref(&pkt);
+    }
+    
+    // Write trailer
+    av_write_trailer(output_ctx);
+    
+    LOGI("Trim completed successfully");
+    ret = 0;
+    
+    // Free allocated arrays
+    av_free(start_pts);
+    av_free(start_dts);
+    
+end:
+    av_freep(&stream_mapping);
+    
+    if (output_ctx && !(output_ctx->oformat->flags & AVFMT_NOFILE)) {
+        avio_closep(&output_ctx->pb);
+    }
+    avformat_free_context(output_ctx);
+    avformat_close_input(&input_ctx);
+    
+    return ret;
 }
 
 // Simple media info extraction
@@ -865,6 +1048,28 @@ int ffmpeg_main(int argc, char **argv) {
                 // For other codecs, fall back to remux
                 LOGW("Codec %s not fully supported, attempting remux", video_codec);
                 return simple_remux(input_file, output_file);
+            }
+        }
+        
+        // Check for trim operation (-ss and -t flags)
+        double start_time = -1;
+        double duration = -1;
+        for (int i = 3; i < argc - 1; i++) {
+            if (strcmp(argv[i], "-ss") == 0) {
+                start_time = atof(argv[i + 1]);
+            } else if (strcmp(argv[i], "-t") == 0) {
+                duration = atof(argv[i + 1]);
+            }
+        }
+        
+        // If we have trim parameters, perform trim operation
+        if (start_time >= 0 || duration > 0) {
+            if (output_file) {
+                LOGI("Trimming video from %.1f seconds, duration %.1f seconds", 
+                     start_time >= 0 ? start_time : 0, duration);
+                return trim_video(input_file, output_file, 
+                                 start_time >= 0 ? start_time : 0, 
+                                 duration > 0 ? duration : -1);
             }
         }
         

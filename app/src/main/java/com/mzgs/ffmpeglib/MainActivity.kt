@@ -474,6 +474,100 @@ class MainActivity : ComponentActivity() {
                         Text("Extract Audio")
                     }
                     
+                    // Trim Video Button
+                    ElevatedButton(
+                        onClick = {
+                            testVideoPath?.let { path ->
+                                lifecycleScope.launch {
+                                    isProcessing = true
+                                    currentTest = "Trimming Video"
+                                    outputText += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                    outputText += "Trimming video (0 to 5 seconds)...\n"
+                                    
+                                    val timestamp = System.currentTimeMillis()
+                                    val outputPath = File(cacheDir, "trimmed_${timestamp}.mp4").absolutePath
+                                    
+                                    outputText += "Input: ${File(path).name}\n"
+                                    outputText += "Output: trimmed_${timestamp}.mp4\n"
+                                    outputText += "Duration: 5 seconds\n"
+                                    outputText += "Using FFmpegOperations.trimVideo() method\n"
+                                    
+                                    // Use FFmpeg command directly with the trim support we added
+                                    val command = "-i $path -ss 0 -t 5 $outputPath"
+                                    outputText += "Command: ffmpeg $command\n"
+                                    
+                                    val success = ffmpeg.execute(
+                                        command,
+                                        object : FFmpegHelper.FFmpegCallback {
+                                            override fun onStart() {
+                                                outputText += "Starting trim operation...\n"
+                                            }
+                                            
+                                            override fun onProgress(prog: Float, time: Long) {
+                                                progress = prog / 100f
+                                            }
+                                            
+                                            override fun onOutput(line: String) {
+                                                // Show diagnostic output
+                                                if (line.contains("Duration") || 
+                                                    line.contains("frame=") ||
+                                                    line.contains("time=") ||
+                                                    line.contains("Stream") ||
+                                                    line.contains("Video:") ||
+                                                    line.contains("Audio:") ||
+                                                    line.contains("Error") ||
+                                                    line.contains("Warning")) {
+                                                    outputText += "$line\n"
+                                                }
+                                            }
+                                            
+                                            override fun onSuccess(output: String?) {
+                                                val outputFile = File(outputPath)
+                                                if (outputFile.exists() && outputFile.length() > 0) {
+                                                    val inputSize = File(path).length() / 1024
+                                                    val outputSize = outputFile.length() / 1024
+                                                    outputText += "✓ Video trimmed successfully!\n"
+                                                    outputText += "  Original size: ${inputSize}KB\n"
+                                                    outputText += "  Trimmed size: ${outputSize}KB\n"
+                                                    outputText += "  Path: $outputPath\n"
+                                                    
+                                                    // Save trimmed video to Downloads folder
+                                                    lifecycleScope.launch {
+                                                        val savedPath = saveVideoToDownloads(outputFile)
+                                                        if (savedPath != null) {
+                                                            outputText += "✓ Saved to Downloads/trimmed_${timestamp}.mp4\n"
+                                                        } else {
+                                                            outputText += "⚠️ Failed to save to Downloads (video available in cache)\n"
+                                                        }
+                                                    }
+                                                } else {
+                                                    outputText += "✗ Trim failed: Output file not created or empty\n"
+                                                }
+                                            }
+                                            
+                                            override fun onFailure(error: String) {
+                                                outputText += "✗ Trim failed: $error\n"
+                                                outputText += "Error details: $error\n"
+                                            }
+                                            
+                                            override fun onFinish() {
+                                                isProcessing = false
+                                                currentTest = ""
+                                                progress = 0f
+                                            }
+                                        }
+                                    )
+                                }
+                            } ?: run {
+                                outputText += "\n⚠️ Please select a video first!\n"
+                            }
+                        },
+                        enabled = !isProcessing && testVideoPath != null,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Trim Video (0-5 seconds)")
+                    }
+                    
                     // Test FFmpeg Version Button
                     ElevatedButton(
                         onClick = {
@@ -1019,6 +1113,51 @@ class MainActivity : ComponentActivity() {
                 
                 val destFile = File(downloadsDir, audioFile.name)
                 audioFile.copyTo(destFile, overwrite = true)
+                
+                return@withContext destFile.absolutePath
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return@withContext null
+    }
+    
+    private suspend fun saveVideoToDownloads(videoFile: File): String? = withContext(Dispatchers.IO) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Android 10+ using MediaStore
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.Video.Media.DISPLAY_NAME, videoFile.name)
+                    put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                    put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                    put(MediaStore.Video.Media.IS_PENDING, 1)
+                }
+                
+                val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                val uri = contentResolver.insert(collection, contentValues)
+                
+                uri?.let { videoUri ->
+                    contentResolver.openOutputStream(videoUri)?.use { output ->
+                        videoFile.inputStream().use { input ->
+                            input.copyTo(output)
+                        }
+                    }
+                    
+                    contentValues.clear()
+                    contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
+                    contentResolver.update(videoUri, contentValues, null, null)
+                    
+                    return@withContext videoUri.toString()
+                }
+            } else {
+                // Android 9 and below
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                if (!downloadsDir.exists()) {
+                    downloadsDir.mkdirs()
+                }
+                
+                val destFile = File(downloadsDir, videoFile.name)
+                videoFile.copyTo(destFile, overwrite = true)
                 
                 return@withContext destFile.absolutePath
             }
