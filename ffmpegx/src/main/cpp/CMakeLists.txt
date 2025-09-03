@@ -58,6 +58,8 @@ target_link_libraries(ffmpeg-jni
 # New FFmpeg Native JNI library for SDK 34+
 add_library(ffmpeg_native_jni SHARED
         ffmpeg_native_jni.cpp
+        ffmpeg_native_executor_jni.cpp
+        ffmpeg_native_loader_jni.cpp
         ffmpeg_cmd.c
         ffmpeg_main.c
         ffmpeg_transcoder.c)  # Add the full transcoding implementation

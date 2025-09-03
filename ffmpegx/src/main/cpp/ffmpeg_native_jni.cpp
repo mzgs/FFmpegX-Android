@@ -10,11 +10,15 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <sstream>
+#include <sys/stat.h>
+#include <errno.h>
+#include <cstring>
 
 #define LOG_TAG "FFmpegNativeJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 
 // Include FFmpeg headers if available
 #ifdef HAVE_FFMPEG_STATIC
@@ -127,45 +131,53 @@ extern "C" JNIEXPORT jint JNICALL
 Java_com_mzgs_ffmpegx_FFmpegNative_nativeExecute(
     JNIEnv* env,
     jobject thiz,
-    jobjectArray args,
-    jobject callback
+    jstring binaryPath,
+    jobjectArray args
 ) {
     int argc = env->GetArrayLength(args);
     LOGI("Starting FFmpeg execution with %d arguments", argc);
     
-    // Store callback reference
-    if (callback) {
-        g_callback = env->NewGlobalRef(callback);
-        
-        // Get callback method IDs
-        jclass callbackClass = env->GetObjectClass(callback);
-        g_onProgress = env->GetMethodID(callbackClass, "onProgress", "(Ljava/lang/String;)V");
-        g_onOutput = env->GetMethodID(callbackClass, "onOutput", "(Ljava/lang/String;)V");
-        g_onError = env->GetMethodID(callbackClass, "onError", "(Ljava/lang/String;)V");
-        g_onComplete = env->GetMethodID(callbackClass, "onComplete", "(I)V");
+    // Get binary path
+    const char* binPath = env->GetStringUTFChars(binaryPath, nullptr);
+    if (!binPath) {
+        LOGE("Failed to get binary path");
+        return -1;
     }
+    std::string binaryPathStr(binPath);
+    env->ReleaseStringUTFChars(binaryPath, binPath);
     
-    // Prepare execution data
+    // Prepare execution data - will be freed by the thread
     FFmpegExecutionData* execData = new FFmpegExecutionData();
     
-    // Add "ffmpeg" as first argument
-    execData->args.push_back("ffmpeg");
+    // Add binary path as first argument
+    execData->args.push_back(binaryPathStr);
     
     // Convert Java string array to C++ vector
     for (int i = 0; i < argc; i++) {
         jstring jstr = (jstring)env->GetObjectArrayElement(args, i);
+        if (!jstr) {
+            LOGW("Null argument at index %d, skipping", i);
+            continue;
+        }
         const char* str = env->GetStringUTFChars(jstr, nullptr);
-        execData->args.push_back(std::string(str));
-        env->ReleaseStringUTFChars(jstr, str);
+        if (str) {
+            execData->args.push_back(std::string(str));
+            env->ReleaseStringUTFChars(jstr, str);
+        }
         env->DeleteLocalRef(jstr);
     }
     
     // Execute in a separate thread to avoid blocking
     pthread_t thread;
-    pthread_create(&thread, nullptr, executeFFmpegThread, execData);
+    int threadResult = pthread_create(&thread, nullptr, executeFFmpegThread, execData);
+    if (threadResult != 0) {
+        LOGE("Failed to create thread: %d", threadResult);
+        delete execData;  // Clean up if thread creation failed
+        return -1;
+    }
     pthread_detach(thread);
     
-    return 0; // Return immediately, callback will be called when complete
+    return 0; // Return immediately, thread will clean up execData
 }
 
 extern "C" JNIEXPORT jint JNICALL
@@ -247,4 +259,22 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_mzgs_ffmpegx_FFmpegNative_nativeIsAvailable(JNIEnv* env, jobject thiz) {
     // Check if FFmpeg is properly linked and available
     return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_mzgs_ffmpegx_FFmpegNative_nativeMakeExecutable(JNIEnv* env, jobject thiz, jstring filePath) {
+    const char* path = env->GetStringUTFChars(filePath, nullptr);
+    LOGI("Making file executable: %s", path);
+    
+    // Use chmod to make the file executable
+    int result = chmod(path, 0755);
+    
+    if (result == 0) {
+        LOGI("Successfully made file executable: %s", path);
+    } else {
+        LOGE("Failed to make file executable: %s (errno: %d)", path, errno);
+    }
+    
+    env->ReleaseStringUTFChars(filePath, path);
+    return result == 0 ? JNI_TRUE : JNI_FALSE;
 }
