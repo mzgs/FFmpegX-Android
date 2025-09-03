@@ -965,6 +965,448 @@ static int simple_remux(const char *input_file, const char *output_file) {
 
 // Forward declarations
 static int ffmpeg_main_simple(int argc, char **argv);
+static int process_with_complex_filter(int argc, char **argv);
+
+// Process video with complex filter graph supporting multiple inputs/outputs
+static int process_with_complex_filter(int argc, char **argv) {
+    LOGI("Processing with complex filter graph");
+    
+    AVFormatContext **input_contexts = NULL;
+    AVFormatContext *output_ctx = NULL;
+    AVFilterGraph *filter_graph = NULL;
+    AVFilterContext **buffersrc_ctxs = NULL;
+    AVFilterContext **buffersink_ctxs = NULL;
+    AVCodecContext **dec_ctxs = NULL;
+    AVCodecContext **enc_ctxs = NULL;
+    AVPacket *packet = NULL;
+    AVFrame *frame = NULL;
+    AVFrame *filt_frame = NULL;
+    
+    int nb_inputs = 0;
+    int nb_outputs = 0;
+    const char **input_files = NULL;
+    const char *output_file = NULL;
+    const char *filter_str = NULL;
+    int *stream_indices = NULL;
+    int ret = 0;
+    
+    // Parse arguments to find all inputs, outputs, and filter
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
+            nb_inputs++;
+        } else if (strcmp(argv[i], "-filter_complex") == 0 && i + 1 < argc) {
+            filter_str = argv[i + 1];
+        } else if (strcmp(argv[i], "-lavfi") == 0 && i + 1 < argc) {
+            filter_str = argv[i + 1];
+        } else if (argv[i][0] != '-' && i == argc - 1) {
+            output_file = argv[i];
+        }
+    }
+    
+    if (!filter_str || !output_file || nb_inputs == 0) {
+        LOGE("Missing required arguments for complex filter");
+        return -1;
+    }
+    
+    // Allocate arrays
+    input_files = av_malloc_array(nb_inputs, sizeof(char*));
+    input_contexts = av_malloc_array(nb_inputs, sizeof(AVFormatContext*));
+    buffersrc_ctxs = av_malloc_array(nb_inputs, sizeof(AVFilterContext*));
+    dec_ctxs = av_malloc_array(nb_inputs, sizeof(AVCodecContext*));
+    stream_indices = av_malloc_array(nb_inputs, sizeof(int));
+    
+    if (!input_files || !input_contexts || !buffersrc_ctxs || !dec_ctxs || !stream_indices) {
+        ret = AVERROR(ENOMEM);
+        goto cleanup;
+    }
+    
+    memset(input_contexts, 0, nb_inputs * sizeof(AVFormatContext*));
+    memset(buffersrc_ctxs, 0, nb_inputs * sizeof(AVFilterContext*));
+    memset(dec_ctxs, 0, nb_inputs * sizeof(AVCodecContext*));
+    memset(stream_indices, -1, nb_inputs * sizeof(int));
+    
+    // Collect input files
+    int input_idx = 0;
+    for (int i = 1; i < argc && input_idx < nb_inputs; i++) {
+        if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
+            input_files[input_idx++] = argv[i + 1];
+            i++;
+        }
+    }
+    
+    // Initialize filter graph
+    filter_graph = avfilter_graph_alloc();
+    if (!filter_graph) {
+        ret = AVERROR(ENOMEM);
+        goto cleanup;
+    }
+    
+    // Open all input files and set up decoders
+    for (int i = 0; i < nb_inputs; i++) {
+        ret = avformat_open_input(&input_contexts[i], input_files[i], NULL, NULL);
+        if (ret < 0) {
+            LOGE("Cannot open input file %s", input_files[i]);
+            goto cleanup;
+        }
+        
+        ret = avformat_find_stream_info(input_contexts[i], NULL);
+        if (ret < 0) {
+            LOGE("Cannot find stream info for %s", input_files[i]);
+            goto cleanup;
+        }
+        
+        // Find video stream
+        stream_indices[i] = -1;
+        for (int j = 0; j < input_contexts[i]->nb_streams; j++) {
+            if (input_contexts[i]->streams[j]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+                stream_indices[i] = j;
+                break;
+            }
+        }
+        
+        if (stream_indices[i] < 0) {
+            LOGE("No video stream in input %s", input_files[i]);
+            ret = AVERROR_STREAM_NOT_FOUND;
+            goto cleanup;
+        }
+        
+        // Set up decoder
+        AVStream *stream = input_contexts[i]->streams[stream_indices[i]];
+        const AVCodec *decoder = avcodec_find_decoder(stream->codecpar->codec_id);
+        if (!decoder) {
+            ret = AVERROR_DECODER_NOT_FOUND;
+            goto cleanup;
+        }
+        
+        dec_ctxs[i] = avcodec_alloc_context3(decoder);
+        if (!dec_ctxs[i]) {
+            ret = AVERROR(ENOMEM);
+            goto cleanup;
+        }
+        
+        ret = avcodec_parameters_to_context(dec_ctxs[i], stream->codecpar);
+        if (ret < 0) {
+            goto cleanup;
+        }
+        
+        ret = avcodec_open2(dec_ctxs[i], decoder, NULL);
+        if (ret < 0) {
+            LOGE("Cannot open decoder for input %d", i);
+            goto cleanup;
+        }
+        
+        // Create buffer source for this input
+        const AVFilter *buffersrc = avfilter_get_by_name("buffer");
+        char args[512];
+        snprintf(args, sizeof(args),
+                "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
+                dec_ctxs[i]->width, dec_ctxs[i]->height, dec_ctxs[i]->pix_fmt,
+                stream->time_base.num, stream->time_base.den,
+                dec_ctxs[i]->sample_aspect_ratio.num, dec_ctxs[i]->sample_aspect_ratio.den);
+        
+        char name[32];
+        snprintf(name, sizeof(name), "in%d", i);
+        
+        ret = avfilter_graph_create_filter(&buffersrc_ctxs[i], buffersrc, name,
+                                          args, NULL, filter_graph);
+        if (ret < 0) {
+            LOGE("Cannot create buffer source for input %d", i);
+            goto cleanup;
+        }
+    }
+    
+    // Create buffer sink
+    const AVFilter *buffersink = avfilter_get_by_name("buffersink");
+    AVFilterContext *buffersink_ctx = NULL;
+    ret = avfilter_graph_create_filter(&buffersink_ctx, buffersink, "out",
+                                      NULL, NULL, filter_graph);
+    if (ret < 0) {
+        LOGE("Cannot create buffer sink");
+        goto cleanup;
+    }
+    
+    // Set output pixel format
+    enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE };
+    ret = av_opt_set_int_list(buffersink_ctx, "pix_fmts", pix_fmts,
+                             AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
+    if (ret < 0) {
+        goto cleanup;
+    }
+    
+    // Parse the complex filter string
+    AVFilterInOut *outputs = NULL;
+    AVFilterInOut *inputs = avfilter_inout_alloc();
+    
+    // Set up inputs (connect to buffer sink)
+    inputs->name = av_strdup("out");
+    inputs->filter_ctx = buffersink_ctx;
+    inputs->pad_idx = 0;
+    inputs->next = NULL;
+    
+    // Set up outputs (connect to buffer sources)
+    for (int i = 0; i < nb_inputs; i++) {
+        AVFilterInOut *output = avfilter_inout_alloc();
+        char name[32];
+        snprintf(name, sizeof(name), "%d:v", i);
+        output->name = av_strdup(name);
+        output->filter_ctx = buffersrc_ctxs[i];
+        output->pad_idx = 0;
+        output->next = outputs;
+        outputs = output;
+    }
+    
+    LOGI("Parsing complex filter: %s", filter_str);
+    ret = avfilter_graph_parse_ptr(filter_graph, filter_str, &inputs, &outputs, NULL);
+    
+    avfilter_inout_free(&inputs);
+    avfilter_inout_free(&outputs);
+    
+    if (ret < 0) {
+        LOGE("Error parsing complex filter");
+        goto cleanup;
+    }
+    
+    ret = avfilter_graph_config(filter_graph, NULL);
+    if (ret < 0) {
+        LOGE("Error configuring filter graph");
+        goto cleanup;
+    }
+    
+    // Create output format context
+    avformat_alloc_output_context2(&output_ctx, NULL, NULL, output_file);
+    if (!output_ctx) {
+        ret = AVERROR_UNKNOWN;
+        goto cleanup;
+    }
+    
+    // Add output stream and encoder
+    AVStream *out_stream = avformat_new_stream(output_ctx, NULL);
+    if (!out_stream) {
+        ret = AVERROR_UNKNOWN;
+        goto cleanup;
+    }
+    
+    // Set up encoder based on filter output format
+    const AVCodec *encoder = avcodec_find_encoder(AV_CODEC_ID_H264);
+    if (!encoder) {
+        ret = AVERROR_ENCODER_NOT_FOUND;
+        goto cleanup;
+    }
+    
+    AVCodecContext *enc_ctx = avcodec_alloc_context3(encoder);
+    if (!enc_ctx) {
+        ret = AVERROR(ENOMEM);
+        goto cleanup;
+    }
+    
+    // Get output dimensions from filter graph
+    AVFilterLink *outlink = buffersink_ctx->inputs[0];
+    enc_ctx->width = outlink->w;
+    enc_ctx->height = outlink->h;
+    enc_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+    enc_ctx->time_base = av_inv_q(outlink->frame_rate);
+    enc_ctx->framerate = outlink->frame_rate;
+    enc_ctx->bit_rate = 2000000;
+    enc_ctx->gop_size = 12;
+    enc_ctx->max_b_frames = 0;
+    
+    if (output_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
+        enc_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    }
+    
+    ret = avcodec_open2(enc_ctx, encoder, NULL);
+    if (ret < 0) {
+        LOGE("Cannot open encoder");
+        avcodec_free_context(&enc_ctx);
+        goto cleanup;
+    }
+    
+    ret = avcodec_parameters_from_context(out_stream->codecpar, enc_ctx);
+    if (ret < 0) {
+        avcodec_free_context(&enc_ctx);
+        goto cleanup;
+    }
+    
+    out_stream->time_base = enc_ctx->time_base;
+    
+    // Open output file
+    if (!(output_ctx->oformat->flags & AVFMT_NOFILE)) {
+        ret = avio_open(&output_ctx->pb, output_file, AVIO_FLAG_WRITE);
+        if (ret < 0) {
+            LOGE("Could not open output file");
+            avcodec_free_context(&enc_ctx);
+            goto cleanup;
+        }
+    }
+    
+    ret = avformat_write_header(output_ctx, NULL);
+    if (ret < 0) {
+        LOGE("Error writing header");
+        avcodec_free_context(&enc_ctx);
+        goto cleanup;
+    }
+    
+    // Process frames
+    packet = av_packet_alloc();
+    frame = av_frame_alloc();
+    filt_frame = av_frame_alloc();
+    
+    if (!packet || !frame || !filt_frame) {
+        ret = AVERROR(ENOMEM);
+        avcodec_free_context(&enc_ctx);
+        goto cleanup;
+    }
+    
+    // Simple processing loop (can be improved for better sync)
+    int finished_inputs = 0;
+    while (finished_inputs < nb_inputs) {
+        // Read from each input
+        for (int i = 0; i < nb_inputs; i++) {
+            if (!input_contexts[i]) continue;
+            
+            ret = av_read_frame(input_contexts[i], packet);
+            if (ret < 0) {
+                if (ret == AVERROR_EOF) {
+                    // Flush decoder
+                    avcodec_send_packet(dec_ctxs[i], NULL);
+                    finished_inputs++;
+                    avformat_close_input(&input_contexts[i]);
+                    input_contexts[i] = NULL;
+                }
+                continue;
+            }
+            
+            if (packet->stream_index == stream_indices[i]) {
+                ret = avcodec_send_packet(dec_ctxs[i], packet);
+                if (ret < 0) {
+                    av_packet_unref(packet);
+                    continue;
+                }
+                
+                while (ret >= 0) {
+                    ret = avcodec_receive_frame(dec_ctxs[i], frame);
+                    if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                        break;
+                    } else if (ret < 0) {
+                        break;
+                    }
+                    
+                    // Push frame to filter
+                    ret = av_buffersrc_add_frame_flags(buffersrc_ctxs[i], frame, 0);
+                    if (ret < 0) {
+                        LOGE("Error feeding frame to filter");
+                    }
+                    av_frame_unref(frame);
+                }
+            }
+            av_packet_unref(packet);
+        }
+        
+        // Pull filtered frames
+        while (1) {
+            ret = av_buffersink_get_frame(buffersink_ctx, filt_frame);
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                break;
+            } else if (ret < 0) {
+                break;
+            }
+            
+            // Encode frame
+            ret = avcodec_send_frame(enc_ctx, filt_frame);
+            if (ret < 0) {
+                av_frame_unref(filt_frame);
+                continue;
+            }
+            
+            while (ret >= 0) {
+                AVPacket enc_pkt = {0};
+                av_init_packet(&enc_pkt);
+                
+                ret = avcodec_receive_packet(enc_ctx, &enc_pkt);
+                if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                    break;
+                } else if (ret < 0) {
+                    break;
+                }
+                
+                av_packet_rescale_ts(&enc_pkt, enc_ctx->time_base, out_stream->time_base);
+                enc_pkt.stream_index = out_stream->index;
+                
+                ret = av_interleaved_write_frame(output_ctx, &enc_pkt);
+                av_packet_unref(&enc_pkt);
+            }
+            
+            av_frame_unref(filt_frame);
+        }
+    }
+    
+    // Flush encoder
+    avcodec_send_frame(enc_ctx, NULL);
+    while (1) {
+        AVPacket enc_pkt = {0};
+        av_init_packet(&enc_pkt);
+        
+        ret = avcodec_receive_packet(enc_ctx, &enc_pkt);
+        if (ret == AVERROR_EOF) {
+            break;
+        } else if (ret < 0) {
+            break;
+        }
+        
+        av_packet_rescale_ts(&enc_pkt, enc_ctx->time_base, out_stream->time_base);
+        enc_pkt.stream_index = out_stream->index;
+        
+        av_interleaved_write_frame(output_ctx, &enc_pkt);
+        av_packet_unref(&enc_pkt);
+    }
+    
+    av_write_trailer(output_ctx);
+    avcodec_free_context(&enc_ctx);
+    
+    LOGI("Complex filter processing completed");
+    ret = 0;
+    
+cleanup:
+    // Clean up
+    av_frame_free(&filt_frame);
+    av_frame_free(&frame);
+    av_packet_free(&packet);
+    
+    if (filter_graph) {
+        avfilter_graph_free(&filter_graph);
+    }
+    
+    if (dec_ctxs) {
+        for (int i = 0; i < nb_inputs; i++) {
+            if (dec_ctxs[i]) {
+                avcodec_free_context(&dec_ctxs[i]);
+            }
+        }
+        av_free(dec_ctxs);
+    }
+    
+    if (input_contexts) {
+        for (int i = 0; i < nb_inputs; i++) {
+            if (input_contexts[i]) {
+                avformat_close_input(&input_contexts[i]);
+            }
+        }
+        av_free(input_contexts);
+    }
+    
+    if (output_ctx) {
+        if (!(output_ctx->oformat->flags & AVFMT_NOFILE)) {
+            avio_closep(&output_ctx->pb);
+        }
+        avformat_free_context(output_ctx);
+    }
+    
+    av_free(buffersrc_ctxs);
+    av_free(stream_indices);
+    av_free(input_files);
+    
+    return ret;
+}
 
 // Scale video using libswscale
 static int scale_video(const char *input_file, const char *output_file, int target_width, int target_height) {
@@ -1074,8 +1516,26 @@ static int scale_video(const char *input_file, const char *output_file, int targ
     enc_ctx->width = target_width;
     enc_ctx->height = target_height;
     enc_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-    enc_ctx->time_base = input_stream->time_base;
-    enc_ctx->framerate = av_guess_frame_rate(input_ctx, input_stream, NULL);
+    
+    // Get framerate and set timebase properly
+    AVRational frame_rate = av_guess_frame_rate(input_ctx, input_stream, NULL);
+    if (frame_rate.num == 0 || frame_rate.den == 0) {
+        frame_rate = (AVRational){30, 1};
+    }
+    enc_ctx->framerate = frame_rate;
+    
+    // Set timebase
+    if (input_stream->time_base.num > 0 && input_stream->time_base.den > 0) {
+        enc_ctx->time_base = input_stream->time_base;
+    } else {
+        enc_ctx->time_base = av_inv_q(frame_rate);
+    }
+    
+    // Ensure valid timebase
+    if (enc_ctx->time_base.num <= 0 || enc_ctx->time_base.den <= 0) {
+        enc_ctx->time_base = (AVRational){1, 30000};
+    }
+    
     enc_ctx->bit_rate = 2000000; // 2 Mbps
     enc_ctx->gop_size = 12;
     enc_ctx->max_b_frames = 0; // Disable B-frames to avoid DTS issues
@@ -1093,7 +1553,13 @@ static int scale_video(const char *input_file, const char *output_file, int targ
     ret = avcodec_open2(enc_ctx, encoder, &opts);
     av_dict_free(&opts);
     if (ret < 0) {
-        LOGE("Failed to open encoder");
+        char errbuf[AV_ERROR_MAX_STRING_SIZE];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        LOGE("Failed to open encoder: %s (error code: %d)", errbuf, ret);
+        LOGE("Encoder parameters: size=%dx%d, pix_fmt=%d, timebase=%d/%d, framerate=%d/%d",
+             enc_ctx->width, enc_ctx->height, enc_ctx->pix_fmt,
+             enc_ctx->time_base.num, enc_ctx->time_base.den,
+             enc_ctx->framerate.num, enc_ctx->framerate.den);
         goto end;
     }
     
@@ -1291,7 +1757,7 @@ end:
 // Main FFmpeg command handler
 // Process video with complex filters
 static int process_video_with_filters(const char *input_file, const char *output_file, 
-                                     const char *filter_str, int argc, char **argv) {
+                                     const char *filter_str, int is_complex_filter, int argc, char **argv) {
     AVFormatContext *input_ctx = NULL, *output_ctx = NULL;
     AVCodecContext *dec_ctx = NULL, *enc_ctx = NULL;
     AVFilterContext *buffersink_ctx = NULL, *buffersrc_ctx = NULL;
@@ -1449,45 +1915,77 @@ static int process_video_with_filters(const char *input_file, const char *output
     
     // Get the frame rate properly
     AVRational frame_rate = av_guess_frame_rate(input_ctx, input_stream, NULL);
+    if (frame_rate.num == 0 || frame_rate.den == 0) {
+        // Default to 30 fps if frame rate cannot be determined
+        frame_rate = (AVRational){30, 1};
+        LOGW("Could not determine frame rate, using default 30 fps");
+    }
     enc_ctx->framerate = frame_rate;
     
-    // For filters, use the same timebase as decoder to maintain sync
-    if (filter_str && strlen(filter_str) > 0) {
+    // Set timebase - ensure it's valid
+    if (input_stream->time_base.num > 0 && input_stream->time_base.den > 0) {
+        enc_ctx->time_base = input_stream->time_base;
+    } else if (dec_ctx->time_base.num > 0 && dec_ctx->time_base.den > 0) {
         enc_ctx->time_base = dec_ctx->time_base;
     } else {
+        // Use inverse of frame rate as timebase
         enc_ctx->time_base = av_inv_q(frame_rate);
     }
+    
+    // Ensure timebase is valid
+    if (enc_ctx->time_base.num <= 0 || enc_ctx->time_base.den <= 0) {
+        LOGW("Invalid timebase, setting to 1/30000");
+        enc_ctx->time_base = (AVRational){1, 30000};
+    }
+    
+    LOGI("Encoder timebase: %d/%d, framerate: %d/%d", 
+         enc_ctx->time_base.num, enc_ctx->time_base.den,
+         enc_ctx->framerate.num, enc_ctx->framerate.den);
     
     // Use custom bitrate if specified, otherwise default
     enc_ctx->bit_rate = custom_bitrate > 0 ? custom_bitrate : 2000000;
     enc_ctx->gop_size = 12;
     enc_ctx->max_b_frames = 0; // Disable B-frames to avoid timestamp issues
     
-    output_stream->time_base = input_stream->time_base; // Keep original stream timebase
-    
-    // Set encoder options based on command line or use defaults
-    if (preset_value) {
-        av_opt_set(enc_ctx->priv_data, "preset", preset_value, 0);
-        LOGI("Using preset: %s", preset_value);
-    } else if (encoder->id == AV_CODEC_ID_H264) {
-        av_opt_set(enc_ctx->priv_data, "preset", "fast", 0);
-    }
-    
-    if (crf_value) {
-        av_opt_set(enc_ctx->priv_data, "crf", crf_value, 0);
-        LOGI("Using CRF: %s", crf_value);
-    } else if (encoder->id == AV_CODEC_ID_H264 && custom_bitrate == 0) {
-        av_opt_set(enc_ctx->priv_data, "crf", "23", 0);
-    }
+    output_stream->time_base = enc_ctx->time_base; // Use encoder timebase for stream
     
     // Some formats want stream headers to be separate
     if (output_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
         enc_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     }
     
-    ret = avcodec_open2(enc_ctx, encoder, NULL);
+    // Set encoder options based on command line or use defaults
+    AVDictionary *opts = NULL;
+    if (encoder->id == AV_CODEC_ID_H264 || encoder->id == AV_CODEC_ID_H265) {
+        if (preset_value) {
+            av_dict_set(&opts, "preset", preset_value, 0);
+            LOGI("Using preset: %s", preset_value);
+        } else {
+            av_dict_set(&opts, "preset", "fast", 0);
+        }
+        
+        if (crf_value) {
+            av_dict_set(&opts, "crf", crf_value, 0);
+            LOGI("Using CRF: %s", crf_value);
+            // When using CRF, don't set a fixed bitrate
+            enc_ctx->bit_rate = 0;
+        } else if (custom_bitrate == 0) {
+            // Default to CRF 23 if no bitrate specified
+            av_dict_set(&opts, "crf", "23", 0);
+            enc_ctx->bit_rate = 0;
+        }
+    }
+    
+    ret = avcodec_open2(enc_ctx, encoder, &opts);
+    av_dict_free(&opts);
     if (ret < 0) {
-        LOGE("Failed to open encoder");
+        char errbuf[AV_ERROR_MAX_STRING_SIZE];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        LOGE("Failed to open encoder: %s (error code: %d)", errbuf, ret);
+        LOGE("Encoder parameters: size=%dx%d, pix_fmt=%d, timebase=%d/%d, framerate=%d/%d",
+             enc_ctx->width, enc_ctx->height, enc_ctx->pix_fmt,
+             enc_ctx->time_base.num, enc_ctx->time_base.den,
+             enc_ctx->framerate.num, enc_ctx->framerate.den);
         goto end;
     }
     
@@ -1497,7 +1995,8 @@ static int process_video_with_filters(const char *input_file, const char *output
         goto end;
     }
     
-    // Initialize filter graph if filter string is provided
+    // Initialize filter graph if filter string is provided or if we need format conversion
+    // Always create a basic filter graph for format conversion even without explicit filters
     if (filter_str && strlen(filter_str) > 0) {
         // Create filter graph
         filter_graph = avfilter_graph_alloc();
@@ -1562,19 +2061,83 @@ static int process_video_with_filters(const char *input_file, const char *output
             goto end;
         }
         
-        outputs->name = av_strdup("in");
-        outputs->filter_ctx = buffersrc_ctx;
-        outputs->pad_idx = 0;
-        outputs->next = NULL;
-        
-        inputs->name = av_strdup("out");
-        inputs->filter_ctx = buffersink_ctx;
-        inputs->pad_idx = 0;
-        inputs->next = NULL;
-        
-        LOGI("Parsing filter string: %s", filter_str);
-        ret = avfilter_graph_parse_ptr(filter_graph, filter_str,
-                                       &inputs, &outputs, NULL);
+        // Handle complex filter graphs vs simple filter chains
+        if (is_complex_filter) {
+            // For complex filters, we need to handle named inputs/outputs
+            // Check if filter has explicit input/output labels
+            if (strstr(filter_str, "[0:v]") || strstr(filter_str, "[0]") || 
+                strstr(filter_str, "[0:a]")) {
+                // Complex filter with explicit input labels
+                // Need to map [0:v] to our buffersrc
+                LOGI("Complex filter graph with explicit inputs detected");
+                
+                // Create a modified filter that connects properly
+                char *modified_filter = av_malloc(strlen(filter_str) * 2 + 100);
+                if (!modified_filter) {
+                    ret = AVERROR(ENOMEM);
+                    avfilter_inout_free(&outputs);
+                    avfilter_inout_free(&inputs);
+                    goto end;
+                }
+                
+                // Simple approach: if filter ends with an output label, use it
+                // Otherwise append [out]
+                const char *last_bracket = strrchr(filter_str, '[');
+                if (last_bracket && strchr(last_bracket, ']')) {
+                    // Has output label, connect it to our sink
+                    strcpy(modified_filter, filter_str);
+                } else {
+                    // No output label, add one
+                    sprintf(modified_filter, "%s[out]", filter_str);
+                }
+                
+                // Set up the connections
+                outputs->name = av_strdup("0:v");
+                outputs->filter_ctx = buffersrc_ctx;
+                outputs->pad_idx = 0;
+                outputs->next = NULL;
+                
+                inputs->name = av_strdup("out");
+                inputs->filter_ctx = buffersink_ctx;
+                inputs->pad_idx = 0;
+                inputs->next = NULL;
+                
+                LOGI("Parsing complex filter: %s", modified_filter);
+                ret = avfilter_graph_parse_ptr(filter_graph, modified_filter,
+                                              &inputs, &outputs, NULL);
+                av_free(modified_filter);
+            } else {
+                // Complex filter without explicit inputs, treat as simple
+                outputs->name = av_strdup("in");
+                outputs->filter_ctx = buffersrc_ctx;
+                outputs->pad_idx = 0;
+                outputs->next = NULL;
+                
+                inputs->name = av_strdup("out");
+                inputs->filter_ctx = buffersink_ctx;
+                inputs->pad_idx = 0;
+                inputs->next = NULL;
+                
+                LOGI("Parsing complex filter as simple: %s", filter_str);
+                ret = avfilter_graph_parse_ptr(filter_graph, filter_str,
+                                               &inputs, &outputs, NULL);
+            }
+        } else {
+            // Simple -vf filter chain
+            outputs->name = av_strdup("in");
+            outputs->filter_ctx = buffersrc_ctx;
+            outputs->pad_idx = 0;
+            outputs->next = NULL;
+            
+            inputs->name = av_strdup("out");
+            inputs->filter_ctx = buffersink_ctx;
+            inputs->pad_idx = 0;
+            inputs->next = NULL;
+            
+            LOGI("Parsing simple filter: %s", filter_str);
+            ret = avfilter_graph_parse_ptr(filter_graph, filter_str,
+                                           &inputs, &outputs, NULL);
+        }
         avfilter_inout_free(&outputs);
         avfilter_inout_free(&inputs);
         
@@ -1638,7 +2201,7 @@ static int process_video_with_filters(const char *input_file, const char *output
                 }
                 
                 // Apply filter if available
-                if (filter_graph) {
+                if (filter_graph && filter_str && strlen(filter_str) > 0) {
                     // Push frame to filter graph (without KEEP_REF flag to avoid memory issues)
                     ret = av_buffersrc_add_frame_flags(buffersrc_ctx, frame, 0);
                     if (ret < 0) {
@@ -1704,12 +2267,51 @@ static int process_video_with_filters(const char *input_file, const char *output
                         av_frame_unref(filtered_frame);
                     }
                 } else {
-                    // No filter, encode directly
-                    frame->pict_type = AV_PICTURE_TYPE_NONE;
+                    // No filter or simple passthrough, encode directly
+                    // Ensure frame is in correct format for encoder
+                    AVFrame *enc_frame = frame;
                     
-                    ret = avcodec_send_frame(enc_ctx, frame);
+                    // Check if we need pixel format conversion
+                    if (frame->format != enc_ctx->pix_fmt) {
+                        // Need format conversion, create a simple scaler
+                        struct SwsContext *sws_conv = sws_getContext(
+                            frame->width, frame->height, frame->format,
+                            enc_ctx->width, enc_ctx->height, enc_ctx->pix_fmt,
+                            SWS_BILINEAR, NULL, NULL, NULL);
+                        
+                        if (sws_conv) {
+                            AVFrame *converted_frame = av_frame_alloc();
+                            if (converted_frame) {
+                                converted_frame->format = enc_ctx->pix_fmt;
+                                converted_frame->width = enc_ctx->width;
+                                converted_frame->height = enc_ctx->height;
+                                
+                                if (av_frame_get_buffer(converted_frame, 0) >= 0) {
+                                    sws_scale(sws_conv,
+                                             (const uint8_t * const *)frame->data, frame->linesize,
+                                             0, frame->height,
+                                             converted_frame->data, converted_frame->linesize);
+                                    
+                                    // Copy timestamps
+                                    converted_frame->pts = frame->pts;
+                                    converted_frame->pkt_dts = frame->pkt_dts;
+                                    converted_frame->duration = frame->duration;
+                                    
+                                    enc_frame = converted_frame;
+                                }
+                            }
+                            sws_freeContext(sws_conv);
+                        }
+                    }
+                    
+                    enc_frame->pict_type = AV_PICTURE_TYPE_NONE;
+                    
+                    ret = avcodec_send_frame(enc_ctx, enc_frame);
                     if (ret < 0) {
                         LOGE("Error sending frame to encoder");
+                        if (enc_frame != frame) {
+                            av_frame_free(&enc_frame);
+                        }
                         av_frame_unref(frame);
                         continue;
                     }
@@ -1723,6 +2325,9 @@ static int process_video_with_filters(const char *input_file, const char *output
                             break;
                         } else if (ret < 0) {
                             LOGE("Error receiving packet from encoder");
+                            if (enc_frame != frame) {
+                                av_frame_free(&enc_frame);
+                            }
                             goto end;
                         }
                         
@@ -1734,8 +2339,16 @@ static int process_video_with_filters(const char *input_file, const char *output
                         av_packet_unref(&enc_pkt);
                         if (ret < 0) {
                             LOGE("Error writing frame");
+                            if (enc_frame != frame) {
+                                av_frame_free(&enc_frame);
+                            }
                             goto end;
                         }
+                    }
+                    
+                    // Clean up converted frame if it was allocated
+                    if (enc_frame != frame) {
+                        av_frame_free(&enc_frame);
                     }
                 }
                 
@@ -1826,21 +2439,56 @@ int ffmpeg_main(int argc, char **argv) {
     const char *output_file = NULL;
     const char *video_filter = NULL;
     const char *audio_filter = NULL;
+    const char *complex_filter = NULL;
     const char *video_codec = NULL;
     const char *audio_codec = NULL;
     double start_time = -1;
     double duration = -1;
+    int is_complex = 0;
     
-    // Parse arguments - support more FFmpeg options
+    // First pass: identify all options that take parameters
+    int *option_params = av_malloc_array(argc, sizeof(int));
+    memset(option_params, 0, argc * sizeof(int));
+    
+    for (int i = 1; i < argc - 1; i++) {
+        if (argv[i][0] == '-') {
+            // Check if this option takes a parameter
+            if (strcmp(argv[i], "-i") == 0 ||
+                strcmp(argv[i], "-vf") == 0 || strcmp(argv[i], "-filter:v") == 0 ||
+                strcmp(argv[i], "-af") == 0 || strcmp(argv[i], "-filter:a") == 0 ||
+                strcmp(argv[i], "-filter_complex") == 0 || strcmp(argv[i], "-lavfi") == 0 ||
+                strcmp(argv[i], "-c:v") == 0 || strcmp(argv[i], "-codec:v") == 0 ||
+                strcmp(argv[i], "-c:a") == 0 || strcmp(argv[i], "-codec:a") == 0 ||
+                strcmp(argv[i], "-ss") == 0 || strcmp(argv[i], "-t") == 0 ||
+                strcmp(argv[i], "-to") == 0 || strcmp(argv[i], "-crf") == 0 ||
+                strcmp(argv[i], "-preset") == 0 || strcmp(argv[i], "-b:v") == 0 ||
+                strcmp(argv[i], "-b:a") == 0 || strcmp(argv[i], "-r") == 0 ||
+                strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "-aspect") == 0 ||
+                strcmp(argv[i], "-q:v") == 0 || strcmp(argv[i], "-qscale:v") == 0 ||
+                strcmp(argv[i], "-map") == 0 || strcmp(argv[i], "-metadata") == 0 ||
+                strcmp(argv[i], "-movflags") == 0 || strcmp(argv[i], "-pix_fmt") == 0 ||
+                strcmp(argv[i], "-profile:v") == 0 || strcmp(argv[i], "-level") == 0 ||
+                strcmp(argv[i], "-g") == 0 || strcmp(argv[i], "-keyint_min") == 0 ||
+                strcmp(argv[i], "-sc_threshold") == 0 || strcmp(argv[i], "-bufsize") == 0 ||
+                strcmp(argv[i], "-maxrate") == 0 || strcmp(argv[i], "-minrate") == 0 ||
+                strcmp(argv[i], "-threads") == 0 || strcmp(argv[i], "-f") == 0) {
+                option_params[i + 1] = 1; // Mark next arg as parameter
+            }
+        }
+    }
+    
+    // Second pass: parse arguments
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
             input_file = argv[i + 1];
             i++;
         } else if (strcmp(argv[i], "-vf") == 0 && i + 1 < argc) {
             video_filter = argv[i + 1];
+            is_complex = 0;
             i++;
         } else if (strcmp(argv[i], "-filter:v") == 0 && i + 1 < argc) {
             video_filter = argv[i + 1];
+            is_complex = 0;
             i++;
         } else if (strcmp(argv[i], "-af") == 0 && i + 1 < argc) {
             audio_filter = argv[i + 1];
@@ -1850,7 +2498,13 @@ int ffmpeg_main(int argc, char **argv) {
             i++;
         } else if (strcmp(argv[i], "-filter_complex") == 0 && i + 1 < argc) {
             // Complex filter graphs
-            video_filter = argv[i + 1];
+            complex_filter = argv[i + 1];
+            is_complex = 1;
+            i++;
+        } else if (strcmp(argv[i], "-lavfi") == 0 && i + 1 < argc) {
+            // Libavfilter graph (-lavfi is an alias for -filter_complex)
+            complex_filter = argv[i + 1];
+            is_complex = 1;
             i++;
         } else if (strcmp(argv[i], "-c:v") == 0 && i + 1 < argc) {
             video_codec = argv[i + 1];
@@ -1877,16 +2531,38 @@ int ffmpeg_main(int argc, char **argv) {
                 duration = end_time - start_time;
             }
             i++;
-        } else if (argv[i][0] != '-' && !output_file && input_file) {
-            // Last non-option argument is output file
+        } else if (argv[i][0] != '-' && !output_file && input_file && !option_params[i]) {
+            // Non-option argument after input file that's not a parameter value
             output_file = argv[i];
         }
     }
+    
+    // Free the temporary array
+    av_free(option_params);
     
     // Validate input
     if (!input_file) {
         LOGE("No input file specified");
         return 1;
+    }
+    
+    // Check for audio extraction first (before other operations)
+    if (output_file && (strstr(output_file, ".mp3") || strstr(output_file, ".aac") || 
+                        strstr(output_file, ".m4a") || strstr(output_file, ".wav"))) {
+        // Check if video should be disabled
+        int extract_audio = 0;
+        for (int i = 1; i < argc; i++) {
+            if (strcmp(argv[i], "-vn") == 0) {
+                extract_audio = 1;
+                break;
+            }
+        }
+        
+        // Also extract audio if output is audio format
+        if (extract_audio || strstr(output_file, ".mp3")) {
+            LOGI("Audio extraction requested to %s", output_file);
+            return extract_audio_to_mp3(input_file, output_file);
+        }
     }
     
     // Handle different operations
@@ -1901,28 +2577,75 @@ int ffmpeg_main(int argc, char **argv) {
         }
     }
     
-    if (video_filter || audio_filter) {
-        // Filter operation - for now use simple processing to avoid crashes
+    if (video_filter || audio_filter || complex_filter) {
+        // Filter operation
         if (output_file) {
-            LOGI("Applying filters: video=%s, audio=%s", 
-                 video_filter ? video_filter : "none",
-                 audio_filter ? audio_filter : "none");
+            const char *filter_to_use = complex_filter ? complex_filter : video_filter;
+            LOGI("Applying filters: type=%s, filter=%s", 
+                 is_complex ? "complex" : "simple",
+                 filter_to_use ? filter_to_use : "none");
             
-            // For scale filter, use direct scaling with swscale
-            if (video_filter && strstr(video_filter, "scale=")) {
+            // For complex filters with multiple inputs, use the dedicated handler
+            if (is_complex && complex_filter) {
+                // Check if we have multiple inputs
+                int input_count = 0;
+                for (int i = 1; i < argc; i++) {
+                    if (strcmp(argv[i], "-i") == 0) input_count++;
+                }
+                
+                if (input_count > 1) {
+                    LOGI("Multiple inputs detected, using complex filter handler");
+                    return process_with_complex_filter(argc, argv);
+                }
+            }
+            
+            // For scale filter, use direct scaling with swscale (only for simple filters)
+            if (!is_complex && video_filter && strstr(video_filter, "scale=")) {
                 LOGI("Scale filter detected, using swscale");
                 // Parse scale dimensions
                 int target_width = 640, target_height = 480;
                 if (sscanf(video_filter, "scale=%d:%d", &target_width, &target_height) == 2) {
                     LOGI("Scaling to %dx%d", target_width, target_height);
                 }
-                // Use dedicated scale function
+                // Check for -1 in dimensions (maintain aspect ratio)
+                if (target_width == -1 || target_height == -1) {
+                    LOGI("Using filter graph for aspect ratio preserving scale");
+                    return process_video_with_filters(input_file, output_file, video_filter, 0, argc, argv);
+                }
+                // Use dedicated scale function for simple scaling
                 return scale_video(input_file, output_file, target_width, target_height);
             }
             
-            // For other filters, try the full implementation
-            return process_video_with_filters(input_file, output_file, video_filter, argc, argv);
+            // For other filters or complex filters, use the full implementation
+            if (filter_to_use) {
+                return process_video_with_filters(input_file, output_file, filter_to_use, is_complex, argc, argv);
+            }
         }
+    }
+    
+    // Check if basic compression was requested (with codec or quality options)
+    if (output_file) {
+        // Check if we have compression-related options
+        int has_compression_opts = 0;
+        
+        for (int i = 1; i < argc; i++) {
+            if (strcmp(argv[i], "-c:v") == 0 || strcmp(argv[i], "-codec:v") == 0 ||
+                strcmp(argv[i], "-crf") == 0 || strcmp(argv[i], "-preset") == 0 ||
+                strcmp(argv[i], "-b:v") == 0 || strcmp(argv[i], "-q:v") == 0) {
+                has_compression_opts = 1;
+                break;
+            }
+        }
+        
+        if (has_compression_opts) {
+            LOGI("Compression options detected, using filter processor for transcoding");
+            // Use the filter processor without filters for proper transcoding
+            return process_video_with_filters(input_file, output_file, NULL, 0, argc, argv);
+        }
+        
+        // Basic copy without re-encoding if no options specified
+        LOGI("No specific operation requested, attempting basic transcode");
+        return process_video_with_filters(input_file, output_file, NULL, 0, argc, argv);
     }
     
     // For other cases, try the simple implementation
