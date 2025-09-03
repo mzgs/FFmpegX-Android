@@ -7,7 +7,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.enableEdgeToEdge
+// import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
     private var outputText by mutableStateOf("FFmpeg Test Results:\n")
     private var progress by mutableStateOf(0f)
     private var customCommand by mutableStateOf("")
+    private var ffmpegVersion by mutableStateOf<String?>(null)
     
     // Video picker using GetContent (Gallery)
     private val videoPickerLauncher = registerForActivityResult(
@@ -77,10 +78,18 @@ class MainActivity : ComponentActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // enableEdgeToEdge() // Not available in current dependency versions
         
         // Initialize FFmpeg
         ffmpeg = FFmpeg.initialize(this)
+        
+        // Get FFmpeg version after initialization
+        lifecycleScope.launch {
+            ffmpegVersion = ffmpeg.getVersion()
+            if (ffmpegVersion != null) {
+                outputText += "FFmpeg version: $ffmpegVersion\n"
+            }
+        }
         
         // Check permissions
         checkPermissions()
@@ -156,13 +165,14 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         
-                        ffmpeg.getVersion()?.let { version ->
+                        val version = ffmpegVersion ?: ffmpeg.getVersion()
+                        version?.let { v ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text("Version:")
-                                Text(version)
+                                Text(v)
                             }
                         }
                         
@@ -257,45 +267,7 @@ class MainActivity : ComponentActivity() {
                         Text("2b. Select Video from Downloads/Files")
                     }
                     
-                    // Download Test Video Button
-                    Button(
-                        onClick = {
-                            lifecycleScope.launch {
-                                val downloader = VideoDownloader(this@MainActivity)
-                                isProcessing = true
-                                currentTest = "Downloading Video"
-                                outputText += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                                outputText += "Starting video download...\n"
-                                
-                                downloader.downloadVideo(
-                                    onProgress = { progressValue, message ->
-                                        progress = progressValue
-                                        outputText += "$message\n"
-                                    },
-                                    onComplete = { path ->
-                                        if (path != null) {
-                                            testVideoPath = path
-                                            outputText += "✓ Video ready at: $path\n"
-                                            outputText += "  Size: ${File(path).length() / 1024}KB\n"
-                                        } else {
-                                            outputText += "✗ Download failed\n"
-                                        }
-                                        isProcessing = false
-                                        currentTest = ""
-                                        progress = 0f
-                                    }
-                                )
-                            }
-                        },
-                        enabled = !isProcessing,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.secondary
-                        )
-                    ) {
-                        Text("3. Download Sample Video (Big Buck Bunny)")
-                    }
-                    
+
                     Divider(modifier = Modifier.padding(vertical = 8.dp))
                     
                     Text(
@@ -357,7 +329,8 @@ class MainActivity : ComponentActivity() {
                                     isProcessing = true
                                     currentTest = "Compressing Video"
                                     outputText += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                                    outputText += "Compressing video...\n"
+                                    outputText += "Compressing video to VERY LOW quality...\n"
+                                    outputText += "Using aggressive compression settings for testing...\n"
                                     
                                     val outputPath = File(cacheDir, "compressed_${System.currentTimeMillis()}.mp4").absolutePath
 
@@ -365,7 +338,7 @@ class MainActivity : ComponentActivity() {
                                     ffmpeg.operations().compressVideo(
                                         inputPath = path,
                                         outputPath = outputPath,
-                                        quality = FFmpegOperations.VideoQuality.MEDIUM,
+                                        quality = FFmpegOperations.VideoQuality.LOW,  // Changed to LOW quality
                                         callback = object : FFmpegHelper.FFmpegCallback {
                                             override fun onStart() {
                                                 outputText += "Starting compression...\n"
@@ -417,22 +390,18 @@ class MainActivity : ComponentActivity() {
                                     isProcessing = true
                                     currentTest = "Extracting Audio"
                                     outputText += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                                    outputText += "Extracting audio...\n"
+                                    outputText += "Extracting audio from video...\n"
                                     
-                                    // First check if the video has audio
-                                    val mediaInfo = ffmpeg.getMediaInfo(path)
-                                    if (mediaInfo?.audioStreams?.isEmpty() == true) {
-                                        outputText += "⚠️ This video doesn't contain any audio stream!\n"
-                                        outputText += "  Please select a video with audio.\n"
-                                        isProcessing = false
-                                        currentTest = ""
-                                        return@launch
-                                    }
+                                    // Skip media info check to avoid interference
+                                    // Just proceed with extraction - FFmpeg will handle if no audio exists
                                     
                                     val timestamp = System.currentTimeMillis()
                                     val outputPath = File(cacheDir, "audio_$timestamp.mp3").absolutePath
                                     
-                                    ffmpeg.operations().extractAudio(
+                                    outputText += "Input: ${File(path).name}\n"
+                                    outputText += "Output: audio_$timestamp.mp3\n"
+                                    
+                                    val success = ffmpeg.operations().extractAudio(
                                         inputPath = path,
                                         outputPath = outputPath,
                                         audioFormat = FFmpegOperations.AudioFormat.MP3,
@@ -453,26 +422,35 @@ class MainActivity : ComponentActivity() {
                                             }
                                             
                                             override fun onSuccess(output: String?) {
-                                                val outputSize = File(outputPath).length() / 1024
-                                                outputText += "✓ Audio extracted!\n"
-                                                outputText += "  Format: MP3\n"
-                                                outputText += "  Size: ${outputSize}KB\n"
-                                                
-                                                // Save to Downloads folder
-                                                lifecycleScope.launch {
-                                                    val savedPath = saveAudioToDownloads(File(outputPath))
-                                                    if (savedPath != null) {
-                                                        outputText += "✓ Saved to Downloads/audio_$timestamp.mp3\n"
-                                                    } else {
-                                                        outputText += "⚠️ Failed to save to Downloads (audio available in cache)\n"
+                                                val outputFile = File(outputPath)
+                                                if (outputFile.exists() && outputFile.length() > 0) {
+                                                    val outputSize = outputFile.length() / 1024
+                                                    outputText += "✓ Audio extracted successfully!\n"
+                                                    outputText += "  Format: MP3\n"
+                                                    outputText += "  Size: ${outputSize}KB\n"
+                                                    outputText += "  Path: $outputPath\n"
+                                                    
+                                                    // Save to Downloads folder
+                                                    lifecycleScope.launch {
+                                                        val savedPath = saveAudioToDownloads(outputFile)
+                                                        if (savedPath != null) {
+                                                            outputText += "✓ Saved to Downloads/audio_$timestamp.mp3\n"
+                                                        } else {
+                                                            outputText += "⚠️ Failed to save to Downloads (audio available in cache)\n"
+                                                        }
                                                     }
+                                                } else {
+                                                    outputText += "✗ Extraction failed: Output file not created or empty\n"
                                                 }
                                             }
                                             
                                             override fun onFailure(error: String) {
-                                                if (error.contains("does not contain any stream")) {
-                                                    outputText += "✗ No audio stream found in this video!\n"
-                                                    outputText += "  This video appears to be video-only.\n"
+                                                if (error.contains("doesn't contain an audio track") || 
+                                                    error.contains("No audio stream") ||
+                                                    error.contains("does not contain any stream")) {
+                                                    outputText += "✗ No audio track found!\n"
+                                                    outputText += "  This video doesn't have audio.\n"
+                                                    outputText += "  Try with a different video that includes sound.\n"
                                                 } else {
                                                     outputText += "✗ Extraction failed: $error\n"
                                                 }

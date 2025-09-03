@@ -15,40 +15,35 @@ class FFmpegOperations(context: Context) {
         quality: VideoQuality = VideoQuality.MEDIUM,
         callback: FFmpegHelper.FFmpegCallback? = null
     ): Boolean {
-        val builder = FFmpegCommandBuilder()
-            .input(inputPath)
-            .overwriteOutput()
+        android.util.Log.d("FFmpegOperations", "compressVideo called with input: $inputPath, output: $outputPath, quality: $quality")
         
-        // Use mpeg4 encoder which is available in our build
-        when (quality) {
+        // Build compression commands with aggressive settings for testing
+        val command = when (quality) {
             VideoQuality.LOW -> {
-                builder.videoCodec("mpeg4")
-                    .videoBitrate("500k")
-                    .customOption("-qscale:v", "5")
+                // VERY aggressive compression for testing
+                // Using simpler command that should work with our implementation
+                "-i \"$inputPath\" -vf scale=640:360 -c:v mpeg4 -vtag mp4v -b:v 200k -c:a aac -b:a 64k -y \"$outputPath\""
             }
             VideoQuality.MEDIUM -> {
-                builder.videoCodec("mpeg4")
-                    .videoBitrate("1500k")
-                    .customOption("-qscale:v", "3")
+                // Moderate compression
+                "-i \"$inputPath\" -c:v mpeg4 -b:v 800k -s 854x480 -r 24 -c:a aac -b:a 96k -ar 44100 -y \"$outputPath\""
             }
             VideoQuality.HIGH -> {
-                builder.videoCodec("mpeg4")
-                    .videoBitrate("3000k")
-                    .customOption("-qscale:v", "2")
+                // Light compression
+                "-i \"$inputPath\" -c:v mpeg4 -b:v 2000k -s 1280x720 -r 30 -c:a aac -b:a 128k -ar 44100 -y \"$outputPath\""
             }
             VideoQuality.VERY_HIGH -> {
-                builder.videoCodec("mpeg4")
-                    .videoBitrate("5000k")
-                    .customOption("-qscale:v", "1")
+                // Minimal compression
+                "-i \"$inputPath\" -c:v mpeg4 -b:v 4000k -r 30 -c:a aac -b:a 192k -ar 48000 -y \"$outputPath\""
             }
         }
         
-        // Use AAC audio codec
-        builder.audioCodec("aac")
-            .audioBitrate("128k")
-            .output(outputPath)
+        android.util.Log.d("FFmpegOperations", "Executing compression command: $command")
         
-        return ffmpegHelper.execute(builder.build(), callback)
+        val result = ffmpegHelper.execute(command, callback)
+        android.util.Log.d("FFmpegOperations", "Compression result: $result")
+        
+        return result
     }
     
     suspend fun extractAudio(
@@ -56,36 +51,46 @@ class FFmpegOperations(context: Context) {
         outputPath: String,
         audioFormat: AudioFormat = AudioFormat.MP3,
         callback: FFmpegHelper.FFmpegCallback? = null
-    ): Boolean {
-        val builder = FFmpegCommandBuilder()
-            .input(inputPath)
-            .overwriteOutput()
+    ): Boolean = withContext(Dispatchers.IO) {
+        android.util.Log.d("FFmpegOperations", "extractAudio called with input: $inputPath, output: $outputPath, format: $audioFormat")
         
-        // Use standard FFmpeg approach - let FFmpeg choose encoder based on output format
-        when (audioFormat) {
+        // Skip the probe check - let FFmpeg handle stream detection directly
+        // The probe was giving false negatives, so we'll let FFmpeg's extraction
+        // command fail naturally if there's no audio
+        android.util.Log.d("FFmpegOperations", "Proceeding with audio extraction for: $inputPath")
+        
+        // Build extraction command based on format - use -c:a instead of -acodec for better compatibility
+        val command = when (audioFormat) {
             AudioFormat.MP3 -> {
-                // Standard MP3 extraction: -q:a 0 for best quality, -map a to map audio only
-                builder.customOption("-q:a", "0")
-                    .customOption("-map", "a")
+                // Use the format expected by ffmpeg_main.c
+                "-i \"$inputPath\" -vn -c:a libmp3lame -b:a 192k -ar 44100 -y \"$outputPath\""
             }
             AudioFormat.AAC -> {
-                builder.customOption("-map", "a")
-                    .audioCodec("aac")
-                    .audioBitrate("192k")
+                "-i \"$inputPath\" -vn -c:a aac -b:a 192k -ar 44100 -y \"$outputPath\""
             }
             AudioFormat.WAV -> {
-                builder.customOption("-map", "a")
-                    .audioCodec("pcm_s16le")
+                "-i \"$inputPath\" -vn -c:a pcm_s16le -ar 44100 -y \"$outputPath\""
             }
             else -> {
-                // For other formats, map audio only
-                builder.customOption("-map", "a")
+                "-i \"$inputPath\" -vn -c:a copy -y \"$outputPath\""
             }
         }
         
-        builder.output(outputPath)
+        android.util.Log.d("FFmpegOperations", "Executing audio extraction command: $command")
         
-        return ffmpegHelper.execute(builder.build(), callback)
+        var result = ffmpegHelper.execute(command, callback)
+        android.util.Log.d("FFmpegOperations", "Audio extraction result: $result")
+        
+        // Check if output file was created
+        val outputFile = File(outputPath)
+        if (result && (!outputFile.exists() || outputFile.length() == 0L)) {
+            android.util.Log.w("FFmpegOperations", "Output file not created, trying with AAC transcoding")
+            // Try transcoding to AAC
+            val aacCommand = "-i \"$inputPath\" -vn -acodec aac -b:a 192k -ar 44100 -y \"$outputPath\""
+            result = ffmpegHelper.execute(aacCommand, callback)
+        }
+        
+        result
     }
     
     suspend fun convertVideo(

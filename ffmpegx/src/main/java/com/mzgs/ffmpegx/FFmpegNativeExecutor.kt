@@ -86,24 +86,38 @@ object FFmpegNativeExecutor {
         command: String,
         callback: FFmpegExecutor.ExecutorCallback?
     ): Long {
-        Log.d(TAG, "Handling Android 10+ execution restrictions using JNI")
+        Log.d(TAG, "Handling Android 10+ execution restrictions using native library loading")
         
-        // Extract FFmpeg binary to files directory
-        val abi = FFmpegLibraryLoader.getArchitectureAbi()
-        val ffmpegPath = FFmpegLibraryLoader.extractToAppFilesDir(
-            context,
-            "ffmpeg/$abi/libffmpeg.so",
-            "ffmpeg"
-        )
-        
-        if (ffmpegPath == null) {
-            Log.e(TAG, "Could not extract FFmpeg binary")
-            callback?.onComplete(127)
-            return -1L
+        // First check if the new JNI implementation is available
+        if (FFmpegNative.isDirectJNIAvailable()) {
+            Log.d(TAG, "Using direct JNI implementation with static FFmpeg libraries")
+            return executeWithDirectJNI(command, callback)
         }
         
-        // Use JNI wrapper for execution on Android 10+
-        return executeWithJNI(ffmpegPath, command, callback)
+        // Try to load FFmpeg as a native library
+        val loaded = FFmpegNativeLoader.loadFFmpegLibrary(context)
+        
+        if (!loaded) {
+            Log.e(TAG, "Failed to load FFmpeg as native library, trying JNI fallback")
+            // Fallback to JNI approach
+            val abi = FFmpegLibraryLoader.getArchitectureAbi()
+            val ffmpegPath = FFmpegLibraryLoader.extractToAppFilesDir(
+                context,
+                "ffmpeg/$abi/libffmpeg.so",
+                "ffmpeg"
+            )
+            
+            if (ffmpegPath == null) {
+                Log.e(TAG, "Could not extract FFmpeg binary")
+                callback?.onComplete(127)
+                return -1L
+            }
+            
+            return executeWithJNI(ffmpegPath, command, callback)
+        }
+        
+        // Use the loaded native library
+        return executeWithLoadedNativeLib(command, callback)
     }
     
     private fun executeWithProcessBuilder(
@@ -241,6 +255,62 @@ object FFmpegNativeExecutor {
      * Native method to execute FFmpeg (requires JNI implementation)
      */
     external fun nativeExecuteFFmpeg(command: String): Int
+    
+    /**
+     * Execute using the loaded native library
+     */
+    private fun executeWithLoadedNativeLib(
+        command: String,
+        callback: FFmpegExecutor.ExecutorCallback?
+    ): Long {
+        Log.d(TAG, "Executing FFmpeg via loaded native library")
+        
+        Thread {
+            try {
+                // Parse command into args array
+                val args = parseCommand(command).toTypedArray()
+                
+                // Call the native method from loaded library
+                val exitCode = FFmpegNativeLoader.executeFFmpegNative(args)
+                
+                Log.d(TAG, "Native execution completed with code: $exitCode")
+                callback?.onComplete(exitCode)
+            } catch (e: Exception) {
+                Log.e(TAG, "Native library execution failed", e)
+                callback?.onError("Native execution failed: ${e.message}")
+                callback?.onComplete(-1)
+            } catch (e: UnsatisfiedLinkError) {
+                Log.e(TAG, "Native method not found", e)
+                callback?.onError("Native method not found: ${e.message}")
+                callback?.onComplete(-1)
+            }
+        }.start()
+        
+        return System.currentTimeMillis() // Return a session ID
+    }
+    
+    private fun executeWithDirectJNI(
+        command: String,
+        callback: FFmpegExecutor.ExecutorCallback?
+    ): Long {
+        Log.d(TAG, "Executing via direct JNI with static FFmpeg libraries")
+        
+        Thread {
+            try {
+                // Use the executeDirectJNI method which already exists
+                val exitCode = FFmpegNative.executeDirectJNI(command)
+                
+                Log.d(TAG, "Direct JNI execution completed with code: $exitCode")
+                callback?.onComplete(exitCode)
+            } catch (e: Exception) {
+                Log.e(TAG, "Direct JNI execution failed", e)
+                callback?.onError("Direct JNI execution failed: ${e.message}")
+                callback?.onComplete(-1)
+            }
+        }.start()
+        
+        return System.currentTimeMillis() // Return a session ID
+    }
     
     private fun executeWithJNI(
         binaryPath: String,

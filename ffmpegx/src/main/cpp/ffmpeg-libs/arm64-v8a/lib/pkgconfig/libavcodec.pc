@@ -1,0 +1,14 @@
+prefix=/Users/mustafa/Developer/FFmpegX-Android/ffmpegx/src/main/cpp/ffmpeg-libs/arm64-v8a
+exec_prefix=${prefix}
+libdir=/Users/mustafa/Developer/FFmpegX-Android/ffmpegx/src/main/cpp/ffmpeg-libs/arm64-v8a/lib
+includedir=/Users/mustafa/Developer/FFmpegX-Android/ffmpegx/src/main/cpp/ffmpeg-libs/arm64-v8a/include
+
+Name: libavcodec
+Description: FFmpeg codec library
+Version: 61.3.100
+Requires: libswresample >= 5.1.100, libavutil >= 59.8.100
+Requires.private: 
+Conflicts:
+Libs: -L${libdir}  -lavcodec -pthread -lm -latomic -lmp3lame -lm -landroid -lz
+Libs.private: 
+Cflags: -I${includedir}

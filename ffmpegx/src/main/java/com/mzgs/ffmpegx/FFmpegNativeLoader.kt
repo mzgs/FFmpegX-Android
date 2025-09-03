@@ -55,9 +55,13 @@ object FFmpegNativeLoader {
         
         Log.d(TAG, "Device is $abi, will try: ${tryPaths.joinToString(", ")}")
         
-        // Android expects libraries in specific locations
-        val nativeLibDir = File(context.applicationInfo.nativeLibraryDir)
-        val libsDir = File(context.filesDir, "libs")
+        // For Android 10+, we need to extract to app's native library directory
+        val libsDir = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // On Android 10+, use the app's code cache dir which allows execution
+            File(context.codeCacheDir, "lib")
+        } else {
+            File(context.filesDir, "libs")
+        }
         libsDir.mkdirs()
         
         // Target file with proper lib naming
@@ -91,10 +95,12 @@ object FFmpegNativeLoader {
         }
         
         try {
-            
-            // Make executable
-            targetFile.setExecutable(true, false)
-            targetFile.setReadable(true, false)
+            // On Android 10+, we don't need to set executable since it's in code cache
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                // Make executable for older Android versions
+                targetFile.setExecutable(true, false)
+                targetFile.setReadable(true, false)
+            }
             
             // Try to load the extracted library
             return try {

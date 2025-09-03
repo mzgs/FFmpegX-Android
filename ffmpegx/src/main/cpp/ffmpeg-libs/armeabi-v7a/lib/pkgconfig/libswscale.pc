@@ -1,0 +1,14 @@
+prefix=/Users/mustafa/Developer/FFmpegX-Android/ffmpegx/src/main/cpp/ffmpeg-libs/armeabi-v7a
+exec_prefix=${prefix}
+libdir=/Users/mustafa/Developer/FFmpegX-Android/ffmpegx/src/main/cpp/ffmpeg-libs/armeabi-v7a/lib
+includedir=/Users/mustafa/Developer/FFmpegX-Android/ffmpegx/src/main/cpp/ffmpeg-libs/armeabi-v7a/include
+
+Name: libswscale
+Description: FFmpeg image rescaling library
+Version: 8.1.100
+Requires: libavutil >= 59.8.100
+Requires.private: 
+Conflicts:
+Libs: -L${libdir}  -lswscale -lm -latomic
+Libs.private: 
+Cflags: -I${includedir}

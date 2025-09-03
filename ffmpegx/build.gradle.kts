@@ -6,14 +6,16 @@ import java.util.zip.ZipInputStream
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    `maven-publish`
 }
 
 android {
     namespace = "com.mzgs.ffmpegx"
-    compileSdk = 36
+    compileSdk = 34
 
     defaultConfig {
         minSdk = 24
+
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
@@ -50,11 +52,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = "1.8"
     }
     
     externalNativeBuild {
@@ -95,5 +97,20 @@ tasks.named("preBuild").configure {
     val markerFile = File(projectDir, "src/main/assets/ffmpeg/.downloaded")
     if (!markerFile.exists()) {
         dependsOn("downloadFFmpegBinaries")
+    }
+}
+
+// Maven publishing configuration for JitPack
+afterEvaluate {
+    publishing {
+        publications {
+            create<MavenPublication>("release") {
+                from(components["release"])
+                
+                groupId = "com.github.mustafazgs"
+                artifactId = "ffmpegx-android"
+                version = "1.0.0"
+            }
+        }
     }
 }

@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.mzgs.ffmpeglib"
-    compileSdk = 36
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.mzgs.ffmpeglib"
         minSdk = 24
-        targetSdk = 28  // Target API 28 to avoid Android 10+ W^X restrictions
+        targetSdk = 34  // Required for Google Play (library still uses SDK 28 behavior)
         versionCode = 1
         versionName = "1.0"
 

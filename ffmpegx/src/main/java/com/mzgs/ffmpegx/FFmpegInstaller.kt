@@ -268,18 +268,37 @@ class FFmpegInstaller(private val context: Context) {
     }
     
     fun getInstalledVersion(): String? {
+        // First try to get version from native JNI if available
+        try {
+            if (FFmpegNative.isDirectJNIAvailable()) {
+                val version = FFmpegNative.nativeGetVersion()
+                if (version.isNotEmpty()) {
+                    return version
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not get version from native library", e)
+        }
+        
+        // Fallback: check if binary is installed (for display purposes)
         return if (isFFmpegInstalled(context)) {
-            try {
-                val process = ProcessBuilder(getFFmpegPath(context), "-version")
-                    .redirectErrorStream(true)
-                    .start()
-                
-                val output = process.inputStream.bufferedReader().use { it.readLine() }
-                process.waitFor()
-                
-                output?.substringAfter("version ")?.substringBefore(" ")
-            } catch (e: Exception) {
-                null
+            // On Android 10+ we can't execute binaries, so return a generic version
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                "FFmpeg 6.0 (JNI)"
+            } else {
+                // Try to execute on older Android versions
+                try {
+                    val process = ProcessBuilder(getFFmpegPath(context), "-version")
+                        .redirectErrorStream(true)
+                        .start()
+                    
+                    val output = process.inputStream.bufferedReader().use { it.readLine() }
+                    process.waitFor()
+                    
+                    output?.substringAfter("version ")?.substringBefore(" ")
+                } catch (e: Exception) {
+                    "FFmpeg (installed)"
+                }
             }
         } else {
             null

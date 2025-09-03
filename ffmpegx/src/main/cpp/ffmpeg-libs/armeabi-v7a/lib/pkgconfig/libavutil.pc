@@ -1,0 +1,14 @@
+prefix=/Users/mustafa/Developer/FFmpegX-Android/ffmpegx/src/main/cpp/ffmpeg-libs/armeabi-v7a
+exec_prefix=${prefix}
+libdir=/Users/mustafa/Developer/FFmpegX-Android/ffmpegx/src/main/cpp/ffmpeg-libs/armeabi-v7a/lib
+includedir=/Users/mustafa/Developer/FFmpegX-Android/ffmpegx/src/main/cpp/ffmpeg-libs/armeabi-v7a/include
+
+Name: libavutil
+Description: FFmpeg utility library
+Version: 59.8.100
+Requires: 
+Requires.private: 
+Conflicts:
+Libs: -L${libdir}  -lavutil -pthread -lm -latomic -landroid
+Libs.private: 
+Cflags: -I${includedir}
