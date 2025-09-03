@@ -1303,6 +1303,28 @@ static int process_video_with_filters(const char *input_file, const char *output
     int video_stream_index = -1;
     int ret;
     
+    // Parse encoder options from command line
+    const char *preset_value = NULL;
+    const char *crf_value = NULL;
+    const char *video_codec_name = NULL;
+    int custom_bitrate = 0;
+    
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "-preset") == 0 && i + 1 < argc) {
+            preset_value = argv[i + 1];
+            LOGI("Found preset option: %s", preset_value);
+        } else if (strcmp(argv[i], "-crf") == 0 && i + 1 < argc) {
+            crf_value = argv[i + 1];
+            LOGI("Found CRF option: %s", crf_value);
+        } else if (strcmp(argv[i], "-b:v") == 0 && i + 1 < argc) {
+            custom_bitrate = atoi(argv[i + 1]);
+            LOGI("Found video bitrate: %d", custom_bitrate);
+        } else if (strcmp(argv[i], "-c:v") == 0 && i + 1 < argc) {
+            video_codec_name = argv[i + 1];
+            LOGI("Found video codec: %s", video_codec_name);
+        }
+    }
+    
     LOGI("Processing video with filters: %s", filter_str ? filter_str : "none");
     
     // Allocate packet and frames
@@ -1384,10 +1406,19 @@ static int process_video_with_filters(const char *input_file, const char *output
         goto end;
     }
     
-    // Find and open encoder
-    encoder = avcodec_find_encoder(AV_CODEC_ID_H264);
+    // Find and open encoder (use specified codec or default to H264)
+    if (video_codec_name) {
+        encoder = avcodec_find_encoder_by_name(video_codec_name);
+        if (!encoder) {
+            LOGI("Codec '%s' not found, falling back to H264", video_codec_name);
+            encoder = avcodec_find_encoder(AV_CODEC_ID_H264);
+        }
+    } else {
+        encoder = avcodec_find_encoder(AV_CODEC_ID_H264);
+    }
+    
     if (!encoder) {
-        LOGE("H264 encoder not found");
+        LOGE("Encoder not found");
         ret = AVERROR_ENCODER_NOT_FOUND;
         goto end;
     }
@@ -1398,17 +1429,56 @@ static int process_video_with_filters(const char *input_file, const char *output
         goto end;
     }
     
+    // Check if we have a transpose filter that will swap dimensions
+    int output_width = dec_ctx->width;
+    int output_height = dec_ctx->height;
+    
+    if (filter_str && (strstr(filter_str, "transpose=1") || strstr(filter_str, "transpose=2") || 
+                       strstr(filter_str, "transpose=clock") || strstr(filter_str, "transpose=cclock"))) {
+        // Transpose will swap width and height
+        output_width = dec_ctx->height;
+        output_height = dec_ctx->width;
+        LOGI("Transpose detected: output dimensions will be %dx%d", output_width, output_height);
+    }
+    
     // Set encoder parameters
-    enc_ctx->width = dec_ctx->width;
-    enc_ctx->height = dec_ctx->height;
+    enc_ctx->width = output_width;
+    enc_ctx->height = output_height;
     enc_ctx->sample_aspect_ratio = dec_ctx->sample_aspect_ratio;
     enc_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-    enc_ctx->time_base = av_inv_q(av_guess_frame_rate(input_ctx, input_stream, NULL));
-    output_stream->time_base = enc_ctx->time_base;
     
-    // Set encoder options for better quality
-    av_opt_set(enc_ctx->priv_data, "preset", "medium", 0);
-    av_opt_set(enc_ctx->priv_data, "crf", "23", 0);
+    // Get the frame rate properly
+    AVRational frame_rate = av_guess_frame_rate(input_ctx, input_stream, NULL);
+    enc_ctx->framerate = frame_rate;
+    
+    // For filters, use the same timebase as decoder to maintain sync
+    if (filter_str && strlen(filter_str) > 0) {
+        enc_ctx->time_base = dec_ctx->time_base;
+    } else {
+        enc_ctx->time_base = av_inv_q(frame_rate);
+    }
+    
+    // Use custom bitrate if specified, otherwise default
+    enc_ctx->bit_rate = custom_bitrate > 0 ? custom_bitrate : 2000000;
+    enc_ctx->gop_size = 12;
+    enc_ctx->max_b_frames = 0; // Disable B-frames to avoid timestamp issues
+    
+    output_stream->time_base = input_stream->time_base; // Keep original stream timebase
+    
+    // Set encoder options based on command line or use defaults
+    if (preset_value) {
+        av_opt_set(enc_ctx->priv_data, "preset", preset_value, 0);
+        LOGI("Using preset: %s", preset_value);
+    } else if (encoder->id == AV_CODEC_ID_H264) {
+        av_opt_set(enc_ctx->priv_data, "preset", "fast", 0);
+    }
+    
+    if (crf_value) {
+        av_opt_set(enc_ctx->priv_data, "crf", crf_value, 0);
+        LOGI("Using CRF: %s", crf_value);
+    } else if (encoder->id == AV_CODEC_ID_H264 && custom_bitrate == 0) {
+        av_opt_set(enc_ctx->priv_data, "crf", "23", 0);
+    }
     
     // Some formats want stream headers to be separate
     if (output_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
@@ -1595,6 +1665,8 @@ static int process_video_with_filters(const char *input_file, const char *output
                             continue;
                         }
                         
+                        // The filter graph already handles PTS correctly, don't rescale again
+                        // Just ensure the frame has proper type
                         filtered_frame->pict_type = AV_PICTURE_TYPE_NONE;
                         
                         // Encode filtered frame

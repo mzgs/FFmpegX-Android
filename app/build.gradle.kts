@@ -64,6 +64,11 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended:1.5.4")
     implementation(libs.androidx.appcompat)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    
+    // ExoPlayer for video playback
+    implementation("androidx.media3:media3-exoplayer:1.2.0")
+    implementation("androidx.media3:media3-ui:1.2.0")
+    
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
