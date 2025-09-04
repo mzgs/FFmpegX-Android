@@ -44,6 +44,8 @@ BUILD_DIR="/tmp/ffmpeg-full-build"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 OUTPUT_BASE="$SCRIPT_DIR/ffmpegx/src/main/cpp/ffmpeg-libs"
 LAME_OUTPUT="$SCRIPT_DIR/ffmpegx/src/main/cpp/lame-libs"
+X264_OUTPUT="$BUILD_DIR/x264-install"
+OPENSSL_OUTPUT="$BUILD_DIR/openssl-install"
 JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 
 # Library versions
@@ -1044,7 +1046,7 @@ EOF
 echo "$FFMPEG_VERSION" > "$ARCHIVE_DIR/VERSION"
 
 # Create the tar.gz archive
-ARCHIVE_NAME="ffmpeg-android-libs-v${FFMPEG_VERSION}.tar.gz"
+ARCHIVE_NAME="ffmpeg-android-libs.tar.gz"
 DOWNLOADS_DIR="$HOME/Downloads"
 mkdir -p "$DOWNLOADS_DIR"
 
