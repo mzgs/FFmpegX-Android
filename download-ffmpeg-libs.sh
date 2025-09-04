@@ -61,7 +61,11 @@ fi
 
 # Extract libraries
 echo -e "${CYAN}Extracting libraries...${NC}"
-tar xzf "$LIBS_ARCHIVE"
+tar xzf "$LIBS_ARCHIVE" 2>&1 | grep -v "LIBARCHIVE.xattr" || true
+
+# Check what was extracted
+echo -e "${CYAN}Checking extracted contents...${NC}"
+ls -la
 
 # Copy to project directories
 echo -e "${CYAN}Installing libraries...${NC}"
@@ -70,15 +74,22 @@ echo -e "${CYAN}Installing libraries...${NC}"
 rm -rf "$LIBS_DIR"
 rm -rf "$LAME_DIR"
 
-# Copy new libraries
-if [ -d "ffmpeg-libs" ]; then
+# Handle different possible directory structures
+if [ -d "ffmpeg-libs" ] && [ -d "lame-libs" ]; then
+    # Standard structure
     cp -r ffmpeg-libs "$CPP_DIR/"
-    echo -e "${GREEN}✓ Installed FFmpeg libraries${NC}"
-fi
-
-if [ -d "lame-libs" ]; then
     cp -r lame-libs "$CPP_DIR/"
-    echo -e "${GREEN}✓ Installed LAME libraries${NC}"
+    echo -e "${GREEN}✓ Installed FFmpeg and LAME libraries${NC}"
+elif [ -d "ffmpegx/src/main/cpp/ffmpeg-libs" ]; then
+    # Full path structure (from macOS tar)
+    cp -r ffmpegx/src/main/cpp/ffmpeg-libs "$CPP_DIR/"
+    cp -r ffmpegx/src/main/cpp/lame-libs "$CPP_DIR/"
+    echo -e "${GREEN}✓ Installed FFmpeg and LAME libraries (from full path)${NC}"
+else
+    echo -e "${RED}Error: Unexpected archive structure${NC}"
+    echo "Contents of extracted archive:"
+    ls -la
+    exit 1
 fi
 
 # Clean up
