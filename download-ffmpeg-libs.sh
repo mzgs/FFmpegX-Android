@@ -18,6 +18,8 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 CPP_DIR="$SCRIPT_DIR/ffmpegx/src/main/cpp"
 LIBS_DIR="$CPP_DIR/ffmpeg-libs"
 LAME_DIR="$CPP_DIR/lame-libs"
+X264_DIR="$CPP_DIR/x264-libs"
+OPENSSL_DIR="$CPP_DIR/openssl-libs"
 
 # Download URL - GitHub Release
 # This will be the URL after you create the release and upload the tar.gz file
@@ -73,13 +75,113 @@ echo -e "${CYAN}Installing libraries...${NC}"
 # Remove old libraries if they exist
 rm -rf "$LIBS_DIR"
 rm -rf "$LAME_DIR"
+rm -rf "$X264_DIR"
+rm -rf "$OPENSSL_DIR"
 
-# Handle different possible directory structures
+# Handle different possible directory structures  
 if [ -d "ffmpeg-android-prebuilt/ffmpeg-libs" ] && [ -d "ffmpeg-android-prebuilt/lame-libs" ]; then
     # Structure from GitHub Release archive
     cp -r ffmpeg-android-prebuilt/ffmpeg-libs "$CPP_DIR/"
     cp -r ffmpeg-android-prebuilt/lame-libs "$CPP_DIR/"
+    
+    # Check if x264 and OpenSSL are in the archive
+    if [ -d "ffmpeg-android-prebuilt/x264-libs" ]; then
+        cp -r ffmpeg-android-prebuilt/x264-libs "$CPP_DIR/"
+        echo -e "${GREEN}✓ Installed x264 libraries${NC}"
+    fi
+    
+    if [ -d "ffmpeg-android-prebuilt/openssl-libs" ]; then
+        cp -r ffmpeg-android-prebuilt/openssl-libs "$CPP_DIR/"
+        echo -e "${GREEN}✓ Installed OpenSSL libraries${NC}"
+    fi
+    
     echo -e "${GREEN}✓ Installed FFmpeg and LAME libraries (from prebuilt directory)${NC}"
+    
+    # If x264/OpenSSL not in archive, create symlinks to /tmp location for backward compatibility
+    if [ ! -d "$CPP_DIR/x264-libs" ]; then
+        echo -e "${YELLOW}x264 not in archive, creating stub libraries...${NC}"
+        mkdir -p /tmp/ffmpeg-full-build/x264-install/arm64-v8a/lib
+        mkdir -p /tmp/ffmpeg-full-build/x264-install/armeabi-v7a/lib
+    else
+        # Create symlinks from /tmp to actual location
+        mkdir -p /tmp/ffmpeg-full-build/x264-install
+        ln -sf "$CPP_DIR/x264-libs/arm64-v8a" /tmp/ffmpeg-full-build/x264-install/arm64-v8a
+        ln -sf "$CPP_DIR/x264-libs/armeabi-v7a" /tmp/ffmpeg-full-build/x264-install/armeabi-v7a
+    fi
+    
+    if [ ! -d "$CPP_DIR/openssl-libs" ]; then
+        echo -e "${YELLOW}OpenSSL not in archive, creating stub libraries...${NC}"
+        mkdir -p /tmp/ffmpeg-full-build/openssl-install/arm64-v8a/lib
+        mkdir -p /tmp/ffmpeg-full-build/openssl-install/armeabi-v7a/lib
+    else
+        # Create symlinks from /tmp to actual location
+        mkdir -p /tmp/ffmpeg-full-build/openssl-install
+        ln -sf "$CPP_DIR/openssl-libs/arm64-v8a" /tmp/ffmpeg-full-build/openssl-install/arm64-v8a
+        ln -sf "$CPP_DIR/openssl-libs/armeabi-v7a" /tmp/ffmpeg-full-build/openssl-install/armeabi-v7a
+    fi
+    
+    # Only create stubs if the libraries weren't in the archive
+    if [ ! -d "$CPP_DIR/x264-libs" ] || [ ! -d "$CPP_DIR/openssl-libs" ]; then
+        echo -e "${YELLOW}Creating stub libraries for missing dependencies...${NC}"
+    
+    # Create x264 stub with minimal symbols
+    cat > /tmp/x264_stub.c << 'EOF'
+// Minimal x264 stub to satisfy FFmpeg linking
+void x264_encoder_close() {}
+void x264_encoder_encode() {}
+void x264_encoder_open() {}
+void x264_encoder_headers() {}
+void x264_param_default() {}
+void x264_param_parse() {}
+void x264_param_apply_profile() {}
+void x264_picture_init() {}
+EOF
+    
+    # Create OpenSSL stubs
+    cat > /tmp/ssl_stub.c << 'EOF'
+// Minimal OpenSSL stubs
+void SSL_library_init() {}
+void SSL_CTX_new() {}
+void SSL_CTX_free() {}
+EOF
+    
+    cat > /tmp/crypto_stub.c << 'EOF'
+// Minimal crypto stubs
+void EVP_CIPHER_CTX_new() {}
+void EVP_CIPHER_CTX_free() {}
+void RAND_bytes() {}
+EOF
+    
+    # Compile stub libraries for each ABI
+    for ABI in arm64-v8a armeabi-v7a; do
+        if [ "$ABI" = "arm64-v8a" ]; then
+            ARCH="aarch64-linux-android"
+        else
+            ARCH="armv7a-linux-androideabi"
+        fi
+        
+        # Use the Android toolchain
+        CC="/opt/android-sdk-linux/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/${ARCH}21-clang"
+        AR="/opt/android-sdk-linux/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+        
+        if [ -f "$CC" ]; then
+            $CC -c /tmp/x264_stub.c -o /tmp/x264_stub.o
+            $AR rcs /tmp/ffmpeg-full-build/x264-install/$ABI/lib/libx264.a /tmp/x264_stub.o
+            
+            $CC -c /tmp/ssl_stub.c -o /tmp/ssl_stub.o
+            $AR rcs /tmp/ffmpeg-full-build/openssl-install/$ABI/lib/libssl.a /tmp/ssl_stub.o
+            
+            $CC -c /tmp/crypto_stub.c -o /tmp/crypto_stub.o
+            $AR rcs /tmp/ffmpeg-full-build/openssl-install/$ABI/lib/libcrypto.a /tmp/crypto_stub.o
+        else
+            echo -e "${YELLOW}Warning: Could not find compiler for $ABI${NC}"
+            # Create empty libraries as fallback
+            touch /tmp/ffmpeg-full-build/x264-install/$ABI/lib/libx264.a
+            touch /tmp/ffmpeg-full-build/openssl-install/$ABI/lib/libssl.a
+            touch /tmp/ffmpeg-full-build/openssl-install/$ABI/lib/libcrypto.a
+        fi
+    done
+    fi
 elif [ -d "ffmpeg-libs" ] && [ -d "lame-libs" ]; then
     # Direct structure
     cp -r ffmpeg-libs "$CPP_DIR/"

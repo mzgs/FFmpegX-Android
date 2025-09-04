@@ -969,6 +969,14 @@ cp -r "$OUTPUT_BASE" "$ARCHIVE_DIR/ffmpeg-libs"
 echo -e "${CYAN}Copying LAME libraries...${NC}"
 cp -r "$LAME_OUTPUT" "$ARCHIVE_DIR/lame-libs"
 
+# Copy x264 libraries
+echo -e "${CYAN}Copying x264 libraries...${NC}"
+cp -r "$X264_OUTPUT" "$ARCHIVE_DIR/x264-libs"
+
+# Copy OpenSSL libraries
+echo -e "${CYAN}Copying OpenSSL libraries...${NC}"
+cp -r "$OPENSSL_OUTPUT" "$ARCHIVE_DIR/openssl-libs"
+
 # Create README for the archive
 cat > "$ARCHIVE_DIR/README.md" << 'EOF'
 # Pre-compiled FFmpeg 6.0 libraries for Android
