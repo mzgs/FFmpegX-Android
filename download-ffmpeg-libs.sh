@@ -75,8 +75,13 @@ rm -rf "$LIBS_DIR"
 rm -rf "$LAME_DIR"
 
 # Handle different possible directory structures
-if [ -d "ffmpeg-libs" ] && [ -d "lame-libs" ]; then
-    # Standard structure
+if [ -d "ffmpeg-android-prebuilt/ffmpeg-libs" ] && [ -d "ffmpeg-android-prebuilt/lame-libs" ]; then
+    # Structure from GitHub Release archive
+    cp -r ffmpeg-android-prebuilt/ffmpeg-libs "$CPP_DIR/"
+    cp -r ffmpeg-android-prebuilt/lame-libs "$CPP_DIR/"
+    echo -e "${GREEN}✓ Installed FFmpeg and LAME libraries (from prebuilt directory)${NC}"
+elif [ -d "ffmpeg-libs" ] && [ -d "lame-libs" ]; then
+    # Direct structure
     cp -r ffmpeg-libs "$CPP_DIR/"
     cp -r lame-libs "$CPP_DIR/"
     echo -e "${GREEN}✓ Installed FFmpeg and LAME libraries${NC}"
