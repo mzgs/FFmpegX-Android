@@ -191,11 +191,19 @@ elif [ -d "ffmpeg-libs" ] && [ -d "lame-libs" ]; then
     if [ -d "x264-libs" ]; then
         cp -r x264-libs "$CPP_DIR/"
         echo -e "${GREEN}✓ Installed x264 libraries${NC}"
+        # Create symlinks for CMake to find them
+        mkdir -p /tmp/ffmpeg-full-build/x264-install
+        ln -sf "$CPP_DIR/x264-libs/arm64-v8a" /tmp/ffmpeg-full-build/x264-install/arm64-v8a
+        ln -sf "$CPP_DIR/x264-libs/armeabi-v7a" /tmp/ffmpeg-full-build/x264-install/armeabi-v7a
     fi
     
     if [ -d "openssl-libs" ]; then
         cp -r openssl-libs "$CPP_DIR/"
         echo -e "${GREEN}✓ Installed OpenSSL libraries${NC}"
+        # Create symlinks for CMake to find them
+        mkdir -p /tmp/ffmpeg-full-build/openssl-install
+        ln -sf "$CPP_DIR/openssl-libs/arm64-v8a" /tmp/ffmpeg-full-build/openssl-install/arm64-v8a
+        ln -sf "$CPP_DIR/openssl-libs/armeabi-v7a" /tmp/ffmpeg-full-build/openssl-install/armeabi-v7a
     fi
     
     echo -e "${GREEN}✓ Installed FFmpeg and LAME libraries${NC}"
