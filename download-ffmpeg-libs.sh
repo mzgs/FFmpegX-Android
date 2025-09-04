@@ -183,9 +183,21 @@ EOF
     done
     fi
 elif [ -d "ffmpeg-libs" ] && [ -d "lame-libs" ]; then
-    # Direct structure
+    # Direct structure (from extracted archive root)
     cp -r ffmpeg-libs "$CPP_DIR/"
     cp -r lame-libs "$CPP_DIR/"
+    
+    # Check for x264 and OpenSSL
+    if [ -d "x264-libs" ]; then
+        cp -r x264-libs "$CPP_DIR/"
+        echo -e "${GREEN}✓ Installed x264 libraries${NC}"
+    fi
+    
+    if [ -d "openssl-libs" ]; then
+        cp -r openssl-libs "$CPP_DIR/"
+        echo -e "${GREEN}✓ Installed OpenSSL libraries${NC}"
+    fi
+    
     echo -e "${GREEN}✓ Installed FFmpeg and LAME libraries${NC}"
 elif [ -d "ffmpegx/src/main/cpp/ffmpeg-libs" ]; then
     # Full path structure (from macOS tar)
