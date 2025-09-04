@@ -18,6 +18,8 @@ local.properties
 # FFmpeg pre-built libraries (downloaded automatically from GitHub Release)
 ffmpegx/src/main/cpp/ffmpeg-libs/
 ffmpegx/src/main/cpp/lame-libs/
+ffmpegx/src/main/cpp/x264-libs/
+ffmpegx/src/main/cpp/openssl-libs/
 
 # Build outputs
 app/build/
