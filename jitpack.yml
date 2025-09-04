@@ -4,6 +4,9 @@ jdk:
 before_install:
   # Install curl for downloading libraries (skip apt-get due to permissions)
   # curl is already available in JitPack environment
+  # Ensure Java 17 is being used
+  - java -version
+  - echo "JAVA_HOME=$JAVA_HOME"
 
 install:
   # Make download script executable

@@ -38,7 +38,7 @@ dependencyResolutionManagement {
 2. Add dependency to your app's `build.gradle.kts`:
 ```kotlin
 dependencies {
-    implementation("com.github.mzgs:FFmpegX-Android:v2.1.0")
+    implementation("com.github.mzgs:FFmpegX-Android:v2.1.1")
 }
 ```
 
@@ -77,6 +77,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+```
+
+## 🔧 Build Requirements
+
+### For Building the Library
+- **Java 17** - Required by Android Gradle Plugin 8.12+
+- **Android SDK** - API level 34
+- **Gradle 8.13+** - Included via wrapper
+
+**Note**: JitPack builds handle Java 17 automatically. For local builds, install Java 17:
+```bash
+# macOS with Homebrew
+brew install openjdk@17
+
+# Or download from Adoptium
+# https://adoptium.net/temurin/releases/?version=17
 ```
 
 ## 📖 Usage Examples
