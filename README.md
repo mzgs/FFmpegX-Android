@@ -38,7 +38,7 @@ dependencyResolutionManagement {
 2. Add dependency to your app's `build.gradle.kts`:
 ```kotlin
 dependencies {
-    implementation("com.github.mzgs:FFmpegX-Android:v2.0.2")
+    implementation("com.github.mzgs:FFmpegX-Android:v2.1.0")
 }
 ```
 

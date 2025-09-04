@@ -31,11 +31,12 @@ extern int ffmpeg_main(int argc, char **argv);
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 
 // Global variables for callback (shared with ffmpeg_main.c)
-JavaVM *java_vm = NULL;
-jobject java_callback = NULL;
-jmethodID on_progress_method = NULL;
-jmethodID on_output_method = NULL;
-jmethodID on_error_method = NULL;
+// Renamed to avoid conflict with FFmpeg's built-in jni.c
+JavaVM *ffmpegx_java_vm = NULL;
+jobject ffmpegx_java_callback = NULL;
+jmethodID ffmpegx_on_progress_method = NULL;
+jmethodID ffmpegx_on_output_method = NULL;
+jmethodID ffmpegx_on_error_method = NULL;
 
 #ifdef HAVE_FFMPEG_STATIC
 // Custom log callback to send FFmpeg logs to Android logcat and Java
@@ -70,12 +71,12 @@ static void ffmpeg_log_callback(void *ptr, int level, const char *fmt, va_list v
     }
     
     // Send to Java callback if available
-    if (java_vm && java_callback && on_output_method) {
+    if (ffmpegx_java_vm && ffmpegx_java_callback && ffmpegx_on_output_method) {
         JNIEnv *env = NULL;
         int attached = 0;
         
-        if ((*java_vm)->GetEnv(java_vm, (void**)&env, JNI_VERSION_1_6) != JNI_OK) {
-            if ((*java_vm)->AttachCurrentThread(java_vm, &env, NULL) == JNI_OK) {
+        if ((*ffmpegx_java_vm)->GetEnv(ffmpegx_java_vm, (void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+            if ((*ffmpegx_java_vm)->AttachCurrentThread(ffmpegx_java_vm, &env, NULL) == JNI_OK) {
                 attached = 1;
             }
         }
@@ -83,12 +84,12 @@ static void ffmpeg_log_callback(void *ptr, int level, const char *fmt, va_list v
         if (env) {
             jstring jline = (*env)->NewStringUTF(env, line);
             if (jline) {
-                (*env)->CallVoidMethod(env, java_callback, on_output_method, jline);
+                (*env)->CallVoidMethod(env, ffmpegx_java_callback, ffmpegx_on_output_method, jline);
                 (*env)->DeleteLocalRef(env, jline);
             }
             
             if (attached) {
-                (*java_vm)->DetachCurrentThread(java_vm);
+                (*ffmpegx_java_vm)->DetachCurrentThread(ffmpegx_java_vm);
             }
         }
     }
@@ -109,12 +110,12 @@ static ProgressInfo progress_info = {0};
 
 // Report progress to Java
 static void report_progress(double percentage) {
-    if (java_vm && java_callback && on_progress_method) {
+    if (ffmpegx_java_vm && ffmpegx_java_callback && ffmpegx_on_progress_method) {
         JNIEnv *env = NULL;
         int attached = 0;
         
-        if ((*java_vm)->GetEnv(java_vm, (void**)&env, JNI_VERSION_1_6) != JNI_OK) {
-            if ((*java_vm)->AttachCurrentThread(java_vm, &env, NULL) == JNI_OK) {
+        if ((*ffmpegx_java_vm)->GetEnv(ffmpegx_java_vm, (void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+            if ((*ffmpegx_java_vm)->AttachCurrentThread(ffmpegx_java_vm, &env, NULL) == JNI_OK) {
                 attached = 1;
             }
         }
@@ -124,12 +125,12 @@ static void report_progress(double percentage) {
             snprintf(progress_str, sizeof(progress_str), "progress:%.1f", percentage);
             jstring jprogress = (*env)->NewStringUTF(env, progress_str);
             if (jprogress) {
-                (*env)->CallVoidMethod(env, java_callback, on_progress_method, jprogress);
+                (*env)->CallVoidMethod(env, ffmpegx_java_callback, ffmpegx_on_progress_method, jprogress);
                 (*env)->DeleteLocalRef(env, jprogress);
             }
             
             if (attached) {
-                (*java_vm)->DetachCurrentThread(java_vm);
+                (*ffmpegx_java_vm)->DetachCurrentThread(ffmpegx_java_vm);
             }
         }
     }
@@ -353,22 +354,22 @@ int ffmpeg_main(int argc, char **argv) {
 JNIEXPORT void JNICALL
 Java_com_mzgs_ffmpegx_FFmpegNative_nativeSetCallback(JNIEnv *env, jobject thiz, jobject callback) {
     // Store JavaVM reference
-    (*env)->GetJavaVM(env, &java_vm);
+    (*env)->GetJavaVM(env, &ffmpegx_java_vm);
     
     // Clear previous callback
-    if (java_callback) {
-        (*env)->DeleteGlobalRef(env, java_callback);
-        java_callback = NULL;
+    if (ffmpegx_java_callback) {
+        (*env)->DeleteGlobalRef(env, ffmpegx_java_callback);
+        ffmpegx_java_callback = NULL;
     }
     
     if (callback) {
         // Store global reference to callback
-        java_callback = (*env)->NewGlobalRef(env, callback);
+        ffmpegx_java_callback = (*env)->NewGlobalRef(env, callback);
         
         // Get method IDs
         jclass callback_class = (*env)->GetObjectClass(env, callback);
-        on_progress_method = (*env)->GetMethodID(env, callback_class, "onProgress", "(Ljava/lang/String;)V");
-        on_output_method = (*env)->GetMethodID(env, callback_class, "onOutput", "(Ljava/lang/String;)V");
-        on_error_method = (*env)->GetMethodID(env, callback_class, "onError", "(Ljava/lang/String;)V");
+        ffmpegx_on_progress_method = (*env)->GetMethodID(env, callback_class, "onProgress", "(Ljava/lang/String;)V");
+        ffmpegx_on_output_method = (*env)->GetMethodID(env, callback_class, "onOutput", "(Ljava/lang/String;)V");
+        ffmpegx_on_error_method = (*env)->GetMethodID(env, callback_class, "onError", "(Ljava/lang/String;)V");
     }
 }

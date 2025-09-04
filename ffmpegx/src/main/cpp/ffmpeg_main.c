@@ -45,12 +45,13 @@ extern int compress_video_full(const char *input_file, const char *output_file, 
 // Helper macro for error strings
 #define av_err2str(errnum) av_make_error_string((char[AV_ERROR_MAX_STRING_SIZE]){0}, AV_ERROR_MAX_STRING_SIZE, errnum)
 
-// Global variables for callbacks (defined in ffmpeg_cmd.c)
-extern JavaVM *java_vm;
-extern jobject java_callback;
-extern jmethodID on_progress_method;
-extern jmethodID on_output_method;
-extern jmethodID on_error_method;
+// External references to JNI callback variables from ffmpeg_cmd.c
+// Renamed to avoid conflict with FFmpeg's built-in jni.c
+extern JavaVM *ffmpegx_java_vm;
+extern jobject ffmpegx_java_callback;
+extern jmethodID ffmpegx_on_progress_method;
+extern jmethodID ffmpegx_on_output_method;
+extern jmethodID ffmpegx_on_error_method;
 
 // Thread safety mutex for global variables
 #include <pthread.h>
@@ -60,6 +61,104 @@ static pthread_mutex_t callback_mutex = PTHREAD_MUTEX_INITIALIZER;
 #define MAX_VIDEO_DIMENSION 8192
 #define MAX_BITRATE 100000000  // 100 Mbps
 #define MIN_VIDEO_DIMENSION 16
+
+// Android system font paths
+#define ANDROID_FONT_DEFAULT "/system/fonts/Roboto-Regular.ttf"
+#define ANDROID_FONT_BOLD "/system/fonts/Roboto-Bold.ttf"
+#define ANDROID_FONT_ITALIC "/system/fonts/Roboto-Italic.ttf"
+#define ANDROID_FONT_MONO "/system/fonts/DroidSansMono.ttf"
+#define ANDROID_FONT_EMOJI "/system/fonts/NotoColorEmoji.ttf"
+
+// Helper function to check if file exists
+static int file_exists(const char *path) {
+    if (!path) return 0;
+    FILE *file = fopen(path, "r");
+    if (file) {
+        fclose(file);
+        return 1;
+    }
+    return 0;
+}
+
+// Helper function to process drawtext filter and replace font shortcuts
+static char* process_drawtext_filter(const char *filter_str) {
+    if (!filter_str || !strstr(filter_str, "drawtext")) {
+        return (char*)filter_str;
+    }
+    
+    char *processed = av_malloc(strlen(filter_str) * 2 + 1024);
+    if (!processed) {
+        return (char*)filter_str;
+    }
+    
+    strcpy(processed, filter_str);
+    
+    // Replace font shortcuts with system paths
+    struct {
+        const char *shortcut;
+        const char *path;
+    } font_mappings[] = {
+        {"fontfile=default:", ANDROID_FONT_DEFAULT ":"},
+        {"fontfile=bold:", ANDROID_FONT_BOLD ":"},
+        {"fontfile=italic:", ANDROID_FONT_ITALIC ":"},
+        {"fontfile=mono:", ANDROID_FONT_MONO ":"},
+        {"fontfile=emoji:", ANDROID_FONT_EMOJI ":"},
+        {"fontfile=roboto:", ANDROID_FONT_DEFAULT ":"},
+        {"fontfile=droid:", "/system/fonts/DroidSans.ttf:"},
+        {NULL, NULL}
+    };
+    
+    for (int i = 0; font_mappings[i].shortcut != NULL; i++) {
+        char *pos = strstr(processed, font_mappings[i].shortcut);
+        if (pos) {
+            // Check if the font file exists
+            char font_path[256];
+            strncpy(font_path, font_mappings[i].path, strlen(font_mappings[i].path) - 1);
+            font_path[strlen(font_mappings[i].path) - 1] = '\0';
+            
+            if (file_exists(font_path)) {
+                // Replace shortcut with actual path
+                char temp[strlen(filter_str) * 2 + 1024];
+                size_t prefix_len = pos - processed;
+                strncpy(temp, processed, prefix_len);
+                temp[prefix_len] = '\0';
+                strcat(temp, "fontfile=");
+                strcat(temp, font_mappings[i].path);
+                strcat(temp, pos + strlen(font_mappings[i].shortcut));
+                strcpy(processed, temp);
+                LOGI("Replaced font shortcut '%s' with system font", font_mappings[i].shortcut);
+            } else {
+                LOGW("System font not found: %s", font_path);
+            }
+        }
+    }
+    
+    // If no fontfile specified but drawtext is present, add default font
+    if (strstr(processed, "drawtext") && !strstr(processed, "fontfile=")) {
+        if (file_exists(ANDROID_FONT_DEFAULT)) {
+            char temp[strlen(processed) * 2 + 1024];
+            char *drawtext_pos = strstr(processed, "drawtext");
+            if (drawtext_pos) {
+                // Find where to insert fontfile parameter
+                char *colon = strchr(drawtext_pos, ':');
+                char *equals = strchr(drawtext_pos, '=');
+                
+                if (equals && (!colon || equals < colon)) {
+                    // drawtext= format
+                    size_t prefix_len = equals - processed + 1;
+                    strncpy(temp, processed, prefix_len);
+                    temp[prefix_len] = '\0';
+                    sprintf(temp + prefix_len, "fontfile=%s:", ANDROID_FONT_DEFAULT);
+                    strcat(temp, equals + 1);
+                    strcpy(processed, temp);
+                    LOGI("Added default system font to drawtext filter");
+                }
+            }
+        }
+    }
+    
+    return processed;
+}
 
 // Helper function to validate video dimensions
 static int validate_video_dimensions(int width, int height, enum AVPixelFormat pix_fmt) {
@@ -226,12 +325,12 @@ static void ffmpeg_log_callback(void *ptr, int level, const char *fmt, va_list v
     
     // Send to Java callback if available (with thread safety)
     pthread_mutex_lock(&callback_mutex);
-    if (java_vm && java_callback && on_output_method) {
+    if (ffmpegx_java_vm && ffmpegx_java_callback && ffmpegx_on_output_method) {
         JNIEnv *env = NULL;
         int attached = 0;
         
-        if ((*java_vm)->GetEnv(java_vm, (void**)&env, JNI_VERSION_1_6) != JNI_OK) {
-            if ((*java_vm)->AttachCurrentThread(java_vm, &env, NULL) == JNI_OK) {
+        if ((*ffmpegx_java_vm)->GetEnv(ffmpegx_java_vm, (void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+            if ((*ffmpegx_java_vm)->AttachCurrentThread(ffmpegx_java_vm, &env, NULL) == JNI_OK) {
                 attached = 1;
             }
         }
@@ -239,12 +338,12 @@ static void ffmpeg_log_callback(void *ptr, int level, const char *fmt, va_list v
         if (env) {
             jstring jstr = (*env)->NewStringUTF(env, line);
             if (jstr) {
-                (*env)->CallVoidMethod(env, java_callback, on_output_method, jstr);
+                (*env)->CallVoidMethod(env, ffmpegx_java_callback, ffmpegx_on_output_method, jstr);
                 (*env)->DeleteLocalRef(env, jstr);
             }
             
             if (attached) {
-                (*java_vm)->DetachCurrentThread(java_vm);
+                (*ffmpegx_java_vm)->DetachCurrentThread(ffmpegx_java_vm);
             }
         }
     }
@@ -2186,6 +2285,13 @@ static int process_video_with_filters(const char *input_file, const char *output
         goto end;
     }
     
+    // Process drawtext filter to handle font shortcuts
+    char *processed_filter_str = NULL;
+    if (filter_str && strlen(filter_str) > 0) {
+        processed_filter_str = process_drawtext_filter(filter_str);
+        filter_str = processed_filter_str;
+    }
+    
     // Initialize filter graph if filter string is provided or if we need format conversion
     // Always create a basic filter graph for format conversion even without explicit filters
     if (filter_str && strlen(filter_str) > 0) {
@@ -2588,6 +2694,9 @@ static int process_video_with_filters(const char *input_file, const char *output
     
 end:
     // Clean up
+    if (processed_filter_str && processed_filter_str != filter_str) {
+        av_free(processed_filter_str);
+    }
     if (filter_graph) {
         avfilter_graph_free(&filter_graph);
     }

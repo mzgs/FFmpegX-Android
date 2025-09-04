@@ -66,14 +66,20 @@ add_library(ffmpeg_native_jni SHARED
 
 # Link with FFmpeg static libraries if available
 if(HAVE_FFMPEG_STATIC)
-    # First add the LAME library path
+    # First add the external library paths
     set(LAME_LIB_PATH ${CMAKE_SOURCE_DIR}/lame-libs/${ANDROID_ABI}/lib/libmp3lame.a)
     
-    # Link libraries in the correct order (LAME must come AFTER libavcodec but BEFORE system libs)
+    # Check if external libraries exist in /tmp/ffmpeg-full-build
+    set(X264_LIB_PATH /tmp/ffmpeg-full-build/x264-install/${ANDROID_ABI}/lib/libx264.a)
+    set(OPENSSL_SSL_LIB /tmp/ffmpeg-full-build/openssl-install/${ANDROID_ABI}/lib/libssl.a)
+    set(OPENSSL_CRYPTO_LIB /tmp/ffmpeg-full-build/openssl-install/${ANDROID_ABI}/lib/libcrypto.a)
+    
+    # Link libraries in the correct order (dependencies must come after the libraries that use them)
     target_include_directories(ffmpeg_native_jni PRIVATE ${FFMPEG_LIBS_DIR}/include)
     target_link_libraries(ffmpeg_native_jni
         ${FFMPEG_LIBS_DIR}/${ANDROID_ABI}/lib/libavformat.a
         ${FFMPEG_LIBS_DIR}/${ANDROID_ABI}/lib/libavcodec.a
+        ${X264_LIB_PATH}  # x264 must come after libavcodec which uses it
         ${LAME_LIB_PATH}  # LAME must come after libavcodec
         ${FFMPEG_LIBS_DIR}/${ANDROID_ABI}/lib/libavfilter.a
         ${FFMPEG_LIBS_DIR}/${ANDROID_ABI}/lib/libswscale.a
@@ -81,8 +87,11 @@ if(HAVE_FFMPEG_STATIC)
         ${FFMPEG_LIBS_DIR}/${ANDROID_ABI}/lib/libavutil.a
         ${FFMPEG_LIBS_DIR}/${ANDROID_ABI}/lib/libavdevice.a
         ${FFMPEG_LIBS_DIR}/${ANDROID_ABI}/lib/libpostproc.a
+        ${OPENSSL_SSL_LIB}  # OpenSSL SSL library
+        ${OPENSSL_CRYPTO_LIB}  # OpenSSL crypto library
         z
         m
+        dl  # Dynamic loader for OpenSSL
         log
         android
     )
