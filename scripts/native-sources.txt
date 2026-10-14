@@ -1,0 +1,16 @@
+ffmpeg https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz
+openssl https://www.openssl.org/source/openssl-3.5.8.tar.gz
+lame https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz
+x264 https://codeload.github.com/mirror/x264/tar.gz/31e19f92f00c7003fa115047ce50978bc98c3a0d
+x265 https://bitbucket.org/multicoreware/x265_git/downloads/x265_4.1.tar.gz
+vpx https://codeload.github.com/webmproject/libvpx/tar.gz/v1.15.2
+opus https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz
+ogg https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.xz
+vorbis https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.xz
+webp https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.5.0.tar.gz
+freetype https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz
+harfbuzz https://codeload.github.com/harfbuzz/harfbuzz/tar.gz/11.2.1
+fribidi https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz
+ass https://github.com/libass/libass/releases/download/0.17.3/libass-0.17.3.tar.xz
+dav1d https://codeload.github.com/videolan/dav1d/tar.gz/1.5.1
+aom https://aomedia.googlesource.com/aom/+archive/refs/tags/v3.12.1.tar.gz

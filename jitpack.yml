@@ -1,0 +1,9 @@
+jdk:
+  - openjdk17
+before_install:
+  - python3 -m venv .native-tools
+  - PIP_USER=false .native-tools/bin/pip install meson ninja
+  - sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "platforms;android-35"
+install:
+  - ./build-ffmpeg.sh
+  - ./gradlew :ffmpegx:publishToMavenLocal

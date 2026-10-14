@@ -1,0 +1,16 @@
+*.iml
+.DS_Store
+.idea/
+.gradle/
+.kotlin/
+**/build/
+local.properties
+/captures/
+.externalNativeBuild/
+.cxx/
+.native-build/
+.native-tools/
+ffmpegx/src/main/jniLibs/
+ffmpegx/src/main/assets/ffmpeg-licenses/
+releases/
+__pycache__/
