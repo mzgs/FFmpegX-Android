@@ -15,6 +15,81 @@ class FFmpegIntegrationTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val ffmpeg = FFmpeg.initialize(context)
 
+    @Test fun mp3H264AndStyledAssReallyEncodeDecodeAndRender() = runBlocking {
+        withTimeout(60_000) {
+            // Retain these small outputs in the app cache for visual inspection after the test.
+            val dir = File(context.cacheDir, "capability-proof")
+            dir.deleteRecursively()
+            assertTrue(dir.mkdirs())
+            fun file(name: String) = File(dir, name)
+            suspend fun run(vararg args: String) {
+                var error = ""
+                val callback = object : FFmpegHelper.FFmpegCallback {
+                    override fun onStart() { }
+                    override fun onProgress(progress: Float, time: Long) { }
+                    override fun onOutput(line: String) { }
+                    override fun onSuccess(output: String?) { }
+                    override fun onFailure(message: String) { error = message }
+                    override fun onFinish() { }
+                }
+                val success = ffmpeg.execute(listOf("-y") + args, callback)
+                assertTrue("${args.toList()}: $error", success)
+            }
+            run("-f", "lavfi", "-i", "color=black:size=320x180:rate=10", "-t", "1",
+                "-c:v", "libx264", "-crf", "0", file("h264.mp4").path)
+            assertEquals("h264", ffmpeg.getMediaInfo(file("h264.mp4").path)!!.videoStreams.single().codec)
+            run("-i", file("h264.mp4").path, "-frames:v", "1", "-pix_fmt", "rgb24",
+                "-f", "rawvideo", file("baseline.rgb").path)
+            val baseline = file("baseline.rgb").readBytes()
+            assertEquals(320 * 180 * 3, baseline.size)
+            assertTrue("Black H.264 frame must decode correctly", baseline.all { it == 0.toByte() })
+
+            run("-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100", "-t", "1",
+                "-c:a", "libmp3lame", "-b:a", "128k", file("audio.mp3").path)
+            assertEquals("mp3", ffmpeg.getMediaInfo(file("audio.mp3").path)!!.audioStreams.single().codec)
+            run("-i", file("audio.mp3").path, "-c:a", "pcm_s16le", "-f", "s16le", file("audio.pcm").path)
+            val pcm = java.nio.ByteBuffer.wrap(file("audio.pcm").readBytes())
+                .order(java.nio.ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+            assertEquals("Decoded MP3 must contain one second of audio", 44100, pcm.remaining())
+            var peak = 0
+            while (pcm.hasRemaining()) peak = maxOf(peak, kotlin.math.abs(pcm.get().toInt()))
+            assertTrue("Decoded MP3 must contain audible samples", peak > 1000)
+
+            file("captions.ass").writeText("""
+                [Script Info]
+                ScriptType: v4.00+
+                PlayResX: 320
+                PlayResY: 180
+                [V4+ Styles]
+                Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+                Style: Default,Roboto,28,&H0000FF00,&H0000FF00,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,1,0,2,10,10,15,1
+                [Events]
+                Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+                Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,ASS works!
+            """.trimIndent())
+            run("-i", file("h264.mp4").path, "-i", file("captions.ass").path,
+                "-map", "0:v", "-map", "1:s", "-c:v", "copy", "-c:s", "ass", file("soft-ass.mkv").path)
+            run("-i", file("soft-ass.mkv").path, "-map", "0:s:0", "-c:s", "ass", file("roundtrip.ass").path)
+            assertTrue(file("roundtrip.ass").readText().contains("ASS works!"))
+            for (filter in listOf("ass", "subtitles")) {
+                run("-i", file("h264.mp4").path, "-vf", "$filter=${file("captions.ass").path}:fontsdir=/system/fonts",
+                    "-c:v", "libx264", "-crf", "0", file("burn-$filter.mp4").path)
+                run("-i", file("burn-$filter.mp4").path, "-frames:v", "1", "-pix_fmt", "rgb24",
+                    "-f", "rawvideo", file("$filter.rgb").path)
+                val rendered = file("$filter.rgb").readBytes()
+                assertEquals(baseline.size, rendered.size)
+                val greenPixels = rendered.indices.step(3).count { i ->
+                    val red = rendered[i].toInt() and 255
+                    val green = rendered[i + 1].toInt() and 255
+                    val blue = rendered[i + 2].toInt() and 255
+                    green > 100 && green > red + 50 && green > blue + 50
+                }
+                assertTrue("$filter must visibly render the green ASS style: $greenPixels pixels", greenPixels > 100)
+                run("-i", file("burn-$filter.mp4").path, "-frames:v", "1", file("$filter.png").path)
+            }
+        }
+    }
+
     @Test fun realCommandsAndEveryConvenienceOperation() = runBlocking {
         withTimeout(180_000) {
             assertTrue(ffmpeg.install())

@@ -14,6 +14,8 @@ Native executables are built from source and are not tracked in Git. Build them 
 
 The build keeps FFmpeg's built-in codecs, filters, formats, and protocols enabled wherever their Android dependencies are available. It adds x264, x265, libvpx, libaom, dav1d, LAME, Opus, Vorbis, WebP, FreeType, HarfBuzz, FriBidi, libass, and OpenSSL. This is a concrete feature set, not a promise that every optional FFmpeg dependency or device feature exists. Inspect `-encoders`, `-decoders`, `-filters`, `-formats`, `-protocols`, and `-buildconf` for the exact inventory.
 
+The optional libvidstab dependency is not included, so `vidstabdetect` and `vidstabtransform` are unavailable. Production pipeline validation is recorded in `validation/production-pipeline/README.md`.
+
 ## Build
 
 Requirements: Java 17, Android SDK 35, NDK `27.0.12077973`, SDK CMake `3.22.1`, Python 3 with venv/pip, make, Perl, curl, tar, shasum, pkg-config, Meson, and Ninja. Build on macOS or Linux. Source URLs and SHA-256 checksums are pinned in [scripts/native-sources.txt](scripts/native-sources.txt) and [scripts/native-sources.sha256](scripts/native-sources.sha256).
@@ -137,7 +139,7 @@ val trimmed = operations.trimVideo(inputPath, trimmedPath,
 - Output paths must be writable. The operations overwrite output files as documented; FFmpeg rejects input/output paths that are the same.
 - Merge uses concat stream copying: inputs must have compatible codecs, time bases, and stream layouts. Trim uses stream copying and is limited by keyframes; use an explicit transcoding command for frame-accurate cuts.
 - Resize requires positive, even H.264 dimensions. Speed is finite and positive; audio tempo filters are chained for speeds outside 0.5–2.0.
-- `addSubtitles` adds a selectable stream, mapping it explicitly. MP4/MOV use `mov_text`; MKV uses SRT. Burn subtitles with the upstream `subtitles` filter and `fontsdir=/system/fonts` or an app-provided font directory. Other containers must support the chosen subtitle codec.
+- `addSubtitles` adds a selectable stream, mapping it explicitly. MP4/MOV use `mov_text`; MKV uses SRT. Burn subtitles with the upstream `subtitles` filter and `fontsdir=/system/fonts` or an app-provided font directory. Select a font present in that directory, for example `force_style='Fontname=Roboto'` with Android system fonts. A missing font such as Arial on the tested emulator can leave subtitles invisible even when the command succeeds. Other containers must support the chosen subtitle codec.
 - Reverse buffers media in memory. Long clips require enough memory or a caller-managed segmented workflow.
 - MediaCodec support is compiled with the NDK backend. Available hardware codecs and accepted dimensions/pixel formats depend on the device. Use `-c:v h264_mediacodec -ndk_codec 1` explicitly when appropriate; software encoding is selected explicitly for convenience operations. Raw FFmpeg commands should also specify the intended encoder; upstream automatic H.264 selection can prefer MediaCodec.
 - Network protocols require Internet access. FFmpeg options control TLS verification (`-tls_verify 1`); the executor supplies a PEM bundle of Android's system roots through `SSL_CERT_FILE`. Provide `-ca_file` for a custom CA. Arbitrary commands retain upstream FFmpeg option defaults.
