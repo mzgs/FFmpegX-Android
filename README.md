@@ -16,68 +16,27 @@ The build keeps FFmpeg's built-in codecs, filters, formats, and protocols enable
 
 The optional libvidstab dependency is not included, so `vidstabdetect` and `vidstabtransform` are unavailable.
 
-## Build
+[Setup](#add-to-your-app) · [Quick start](#quick-start) · [Operations](#convenience-operations) · [Android storage](#files-and-android-storage) · [Build](#build-from-source) · [Checks](#run-checks)
 
-Requirements: Java 17, Android SDK 35, Python 3, and curl. The native download URL and SHA-256 checksum are pinned in [scripts/native-release.json](scripts/native-release.json). The script checks the archive checksum, all eight executables, and license notices before replacing the installed binaries.
+## Add to your app
 
-```bash
-export JAVA_HOME=/path/to/jdk17
-export ANDROID_HOME=/path/to/android/sdk
-sdkmanager "platforms;android-35"
-python3 scripts/download-native.py
-./gradlew :ffmpegx:assembleRelease :app:assembleDebug
-```
-
-A normal Gradle build verifies all four ABIs; it fails if any executable is missing, has the wrong architecture, requires an unpackaged library, or lacks 16 KiB segment alignment. Downloads are cached by checksum in `.native-build/prebuilt/` and verified again on every run. For an offline build, use `python3 scripts/download-native.py --archive /path/to/ffmpeg-android.tar.gz` with a copy of the pinned archive.
-
-The AAR is `ffmpegx/build/outputs/aar/ffmpegx-release.aar`; the demo APK is `app/build/outputs/apk/debug/app-debug.apk`. To install the demo on a connected device or emulator, run `./gradlew :app:installDebug`.
-
-JitPack uses [jitpack.yml](jitpack.yml) to download the pinned binaries and run `./gradlew :ffmpegx:publishToMavenLocal`. The build helpers support its legacy Python runtime, and Gradle installs the required Android SDK packages. It does not compile FFmpeg or require the NDK, Meson, or Ninja.
-
-### Updating the native binaries
-
-Run the **Build native FFmpeg release** workflow in GitHub Actions with a new tag such as `native-ffmpeg-8.1.3-r2`. It builds all four architectures and publishes a separate native-assets release containing binaries, license notices, corresponding source archives/build instructions, checksums, and a generated `native-release.json`. Download that JSON file, replace `scripts/native-release.json`, run the download and Gradle checks, and commit the new pin before tagging an Android library release for JitPack. Use a new native tag for every update; never overwrite existing release assets.
-
-To rebuild locally instead, install NDK `27.0.12077973`, SDK CMake `3.22.1`, make, Perl, tar, shasum, pkg-config, and Python venv/pip, then run:
-
-```bash
-export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
-sdkmanager "ndk;27.0.12077973" "cmake;3.22.1"
-python3 -m venv .native-tools
-PIP_USER=false .native-tools/bin/pip install meson==1.12.1 ninja==1.13.0
-./build-ffmpeg.sh
-bash scripts/package-native.sh native-ffmpeg-8.1.3-r2
-```
-
-The package command writes the native assets and pin file to `releases/native/`; it does not publish the Android library. Upstream source URLs and checksums are pinned in [scripts/native-sources.txt](scripts/native-sources.txt) and [scripts/native-sources.sha256](scripts/native-sources.sha256). Cached archives and extracted sources are refreshed when their checksum changes; clear `.native-build/work/` and `.native-build/install/` when changing dependency versions or compiler flags. `./build-ffmpeg.sh arm64-v8a` builds one ABI, but all four are required for packaging.
-
-## Integrate
-
-For a JitPack release, add `maven { url = uri("https://jitpack.io") }` to the consuming project's dependency repositories and use the Git tag as the version:
+Add JitPack to the consuming project's `settings.gradle.kts`:
 
 ```kotlin
-dependencies {
-    implementation("com.github.mzgs:FFmpegX-Android:<tag>")
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
 }
 ```
 
-JitPack supplies the repository name and tag to the Maven publication; local publication keeps the `com.github.mzgs:ffmpegx-android:3.0.0` coordinates.
-
-For the local module, add this to the consuming application's `build.gradle.kts`:
+Then add the dependency to the app's `build.gradle.kts`, replacing `<library-tag>` with the Android library release tag you want to build. Tags beginning with `native-ffmpeg-` select native assets and are not Android library versions.
 
 ```kotlin
 dependencies {
-    implementation(project(":ffmpegx"))
-}
-```
-
-For a standalone AAR, copy `ffmpegx-release.aar` into the consuming app's `libs/` directory and declare its dependencies explicitly. A manually added AAR does not resolve Maven dependencies:
-
-```kotlin
-dependencies {
-    implementation(files("libs/ffmpegx-release.aar"))
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.2.10")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("com.github.mzgs:FFmpegX-Android:<library-tag>")
 }
 ```
 
@@ -91,23 +50,31 @@ android {
 
 The library manifest sets `android:extractNativeLibs="true"`. Keep that setting in the merged app manifest. FFmpeg and ffprobe are PIE executables named `libffmpeg_exec.so` and `libffprobe_exec.so` so Android installs them into `applicationInfo.nativeLibraryDir`. They are executed there, never copied to a writable app directory. Do not use `System.loadLibrary()` on these executables. Extraction is required even on Android 10+; uncompressed in-APK libraries are not filesystem paths that ProcessBuilder can execute.
 
-## Use
+## Quick start
 
 ```kotlin
 import com.mzgs.ffmpegx.FFmpeg
 
+// context is your Application or Activity context; inputFile and outputFile are Files.
 val ffmpeg = FFmpeg.initialize(context)
 
 // In a coroutine. Argument lists avoid command-string quoting entirely.
 val success = ffmpeg.execute(listOf(
     "-y", "-i", inputFile.absolutePath,
-    "-c:v", "libx264", "-crf", "23", "-c:a", "aac",
+    "-c:v", "libx264", "-crf", "23", "-pix_fmt", "yuv420p",
+    "-c:a", "aac",
     outputFile.absolutePath
 ))
-val info = ffmpeg.getMediaInfo(inputFile.absolutePath)
+if (success) {
+    val info = ffmpeg.getMediaInfo(outputFile.absolutePath)
+    val durationMs = info?.duration
+    val video = info?.videoStreams?.firstOrNull()
+}
 ```
 
 Initialize once with an application or activity context. Call `execute` and `getMediaInfo` from a coroutine; they dispatch work to `Dispatchers.IO`. `execute` waits for completion and returns whether the process exited successfully. `getMediaInfo` returns `null` if probing fails; its duration is in milliseconds and bitrate is in bits per second. Check results before using output files. Initialization or argument errors can throw exceptions.
+
+### Build commands
 
 `execute(String)` and `executeAsync(String)` accept FFmpeg arguments without a leading `ffmpeg`. Quotes and backslash escapes are parsed; shell expansion, pipes, and redirects are not executed. The command builder stores raw arguments: `buildAsList()` returns arguments, and `build()` quotes them for the string API.
 
@@ -120,7 +87,28 @@ val arguments = ffmpeg.commandBuilder()
 ffmpeg.execute(arguments)
 ```
 
-All `FFmpegHelper.FFmpegCallback` methods remain available. Callbacks run on the caller/executor threads; dispatch UI updates to the main thread. `onProgress(progress, time)` uses **0.0–1.0** and milliseconds. Percentage is unknown until FFmpeg reports a duration; completion reports 1.0. Input duration may differ from output duration when trimming, concatenating, or changing speed. Stream log lines with `onOutput`; completion retains the last 64 KiB.
+### Progress and logs
+
+Pass an `FFmpegHelper.FFmpegCallback` to `execute`, `executeAsync`, or convenience operations to receive progress and logs. Callbacks run on the caller/executor threads; dispatch UI updates to the main thread. `onProgress(progress, time)` uses **0.0–1.0** and milliseconds. Percentage is unknown until FFmpeg reports a duration; successful completion reports 1.0. Input duration may differ from output duration when trimming, concatenating, or changing speed. Stream log lines with `onOutput`; completion retains the last 65,536 characters of process output.
+
+```kotlin
+import android.util.Log
+import com.mzgs.ffmpegx.FFmpegHelper
+
+// In a coroutine; arguments is the List<String> built above.
+val success = ffmpeg.execute(arguments, object : FFmpegHelper.FFmpegCallback {
+    override fun onStart() { }
+    override fun onProgress(progress: Float, time: Long) {
+        Log.d("FFmpeg", "${(progress * 100).toInt()}% at ${time}ms")
+    }
+    override fun onOutput(line: String) { Log.d("FFmpeg", line) }
+    override fun onSuccess(output: String?) { }
+    override fun onFailure(error: String) { Log.e("FFmpeg", error) }
+    override fun onFinish() { }
+})
+```
+
+### Sessions and cancellation
 
 `FFmpeg.executeAsync` is a suspend function that returns a session ID as soon as the process is scheduled. It accepts a command string; use the builder's `build()` when constructing it from paths:
 
@@ -137,10 +125,6 @@ ffmpeg.cancel(sessionId)
 ```
 
 Session IDs are unique, and `sessions().activeSessions` is a `StateFlow` containing running and retained terminal sessions, including progress and completion/failure/cancellation state. Cancelling a coroutine awaiting `execute` or `getMediaInfo` stops its process. After `executeAsync` returns, use `cancel(sessionId)` or `cancelAll()` to stop scheduled work. Use `sessions().clearCompletedSessions()` to release history after inspecting it.
-
-## Migrating to 3.0.0
-
-The documented `FFmpeg`, helper, operations, command builder, installer, session manager, progress, exception, and utility APIs remain. Progress now consistently uses a fraction; remove any extra division by 100 in callers. `buildAsList()` now returns raw arguments. Low-level experimental JNI/shell/native loader classes and the partial custom C transcoder are removed; callers using those internals must migrate to `FFmpeg.execute`. No JNI implementation pretends to support arbitrary commands.
 
 ## Convenience operations
 
@@ -159,7 +143,6 @@ val trimmed = operations.trimVideo(inputPath, trimmedPath,
     startTimeSeconds = 5.0, durationSeconds = 10.0)
 ```
 
-- Use readable filesystem paths. Copy a Storage Access Framework `content://` URI with `FFmpegUtils.copyUriToFile` first; raw FFmpeg does not understand Android content providers.
 - Output paths must be writable. The operations overwrite output files as documented; FFmpeg rejects input/output paths that are the same.
 - Merge uses concat stream copying: inputs must have compatible codecs, time bases, and stream layouts. Trim uses stream copying and is limited by keyframes; use an explicit transcoding command for frame-accurate cuts.
 - Resize requires positive, even H.264 dimensions. Speed is finite and positive; audio tempo filters are chained for speeds outside 0.5–2.0.
@@ -169,11 +152,75 @@ val trimmed = operations.trimVideo(inputPath, trimmedPath,
 - Network protocols require Internet access. FFmpeg options control TLS verification (`-tls_verify 1`); the executor supplies a PEM bundle of Android's system roots through `SSL_CERT_FILE`. Provide `-ca_file` for a custom CA. Arbitrary commands retain upstream FFmpeg option defaults.
 - `install()` verifies APK-packaged programs; there is no runtime binary download. `uninstall()` cancels tasks; removing these immutable binaries requires updating or uninstalling the application.
 
+## Files and Android storage
+
+Pass readable filesystem paths to FFmpeg. For a Storage Access Framework `content://` URI, copy its contents to app storage first. The caller needs read access to the selected URI.
+
+```kotlin
+import com.mzgs.ffmpegx.FFmpegUtils
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+// In a coroutine; uri is the Uri returned by your document picker.
+val input = File.createTempFile("ffmpeg-input-", ".mp4", context.cacheDir)
+val output = File(context.filesDir, "converted.mp4")
+try {
+    val copied = withContext(Dispatchers.IO) {
+        FFmpegUtils.copyUriToFile(context, uri, input)
+    }
+    check(copied) { "Could not read the selected video" }
+    val success = ffmpeg.operations().compressVideo(input.absolutePath, output.absolutePath)
+    // Export or display output only if success is true.
+} finally {
+    input.delete()
+}
+```
+
 The demo processes in app storage and exports finished videos to Downloads through MediaStore on Android 10+, without broad media permissions. Older Android versions use the legacy storage permission.
 
-## Verification
+## Migrating to 3.0.0
 
-After building native binaries, run the native checks and JVM tests:
+The documented `FFmpeg`, helper, operations, command builder, installer, session manager, progress, exception, and utility APIs remain. Progress now consistently uses a fraction; remove any extra division by 100 in callers. `buildAsList()` now returns raw arguments. Low-level experimental JNI/shell/native loader classes and the partial custom C transcoder are removed; callers using those internals must migrate to `FFmpeg.execute`. No JNI implementation pretends to support arbitrary commands.
+
+## Build from source
+
+Requirements: Java 17, Android SDK 35, Python 3, and curl. The native download URL and SHA-256 checksum are pinned in [scripts/native-release.json](scripts/native-release.json). The script checks the archive checksum, all eight executables, and license notices before replacing the installed binaries.
+
+```bash
+export JAVA_HOME=/path/to/jdk17
+export ANDROID_HOME=/path/to/android/sdk
+sdkmanager "platforms;android-35"
+python3 scripts/download-native.py
+./gradlew :ffmpegx:assembleRelease :app:assembleDebug
+```
+
+A normal Gradle build verifies all four ABIs; it fails if any executable is missing, has the wrong architecture, requires an unpackaged library, or lacks 16 KiB segment alignment. Downloads are cached by checksum in `.native-build/prebuilt/` and verified again on every run. To install binaries without network access, use `python3 scripts/download-native.py --archive /path/to/ffmpeg-android.tar.gz` with a copy of the pinned archive. Gradle and Android SDK dependencies must also be cached for a fully offline build.
+
+The AAR is `ffmpegx/build/outputs/aar/ffmpegx-release.aar`; the demo APK is `app/build/outputs/apk/debug/app-debug.apk`. To install the demo on a connected device or emulator, run `./gradlew :app:installDebug`.
+
+JitPack uses [jitpack.yml](jitpack.yml) to download the pinned binaries and run `./gradlew :ffmpegx:publishToMavenLocal`. The build helpers support its legacy Python runtime, and Gradle installs the required Android SDK packages. It does not compile FFmpeg or require the NDK, Meson, or Ninja.
+
+### Rebuild and release native binaries
+
+Run the [Build native FFmpeg release](.github/workflows/native-release.yml) workflow in GitHub Actions with a new tag such as `native-ffmpeg-8.1.3-r2`. It builds all four architectures and publishes a separate native-assets release containing binaries, license notices, corresponding source archives/build instructions, checksums, and a generated `native-release.json`. Download that JSON file, replace `scripts/native-release.json`, run the download and Gradle checks, and commit the new pin before tagging an Android library release for JitPack. Use a new native tag for every update; never overwrite existing release assets.
+
+To rebuild locally on macOS or Linux, install NDK `27.0.12077973`, SDK CMake `3.22.1`, make, Perl, tar, shasum, pkg-config, and Python venv/pip, then run:
+
+```bash
+export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
+sdkmanager "ndk;27.0.12077973" "cmake;3.22.1"
+python3 -m venv .native-tools
+PIP_USER=false .native-tools/bin/pip install meson==1.12.1 ninja==1.13.0
+./build-ffmpeg.sh
+bash scripts/package-native.sh native-ffmpeg-8.1.3-r2
+```
+
+The package command writes the native assets and pin file to `releases/native/`; it does not publish the Android library. Upstream source URLs and checksums are pinned in [scripts/native-sources.txt](scripts/native-sources.txt) and [scripts/native-sources.sha256](scripts/native-sources.sha256). Cached archives and extracted sources are refreshed when their checksum changes; clear `.native-build/work/` and `.native-build/install/` when changing dependency versions or compiler flags. `./build-ffmpeg.sh arm64-v8a` builds one ABI, but all four are required for packaging.
+
+## Run checks
+
+After downloading or building the native binaries, run the native checks and JVM tests:
 
 ```bash
 python3 scripts/verify-native.py
@@ -195,4 +242,4 @@ Previous validation is summarized in [BUILD-REPORT.md](BUILD-REPORT.md). Runtime
 
 ## License and distribution
 
-This build enables GPL and GPLv3 components, including x264/x265 and OpenSSL 3. It does **not** enable `--enable-nonfree` or FDK-AAC. FFmpeg's native AAC encoder is included. Distributing a resulting application/AAR requires complying with the applicable GPL and bundled dependency licenses and providing corresponding source/build instructions. The pinned source list, checksums, and build script identify the native sources; keep the original license notices when distributing them. No new public JitPack release is claimed by this checkout.
+This build enables GPL and GPLv3 components, including x264/x265 and OpenSSL 3. It does **not** enable `--enable-nonfree` or FDK-AAC. FFmpeg's native AAC encoder is included. Distributing a resulting application/AAR requires complying with the applicable GPL and bundled dependency licenses and providing corresponding source/build instructions. The pinned source list, checksums, and build script identify the native sources; keep the original license notices when distributing them.
