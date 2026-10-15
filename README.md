@@ -236,8 +236,6 @@ The convenience functions provide [format and quality presets](#convenience-oper
 
 ## API reference
 
-Expand a section for its examples and options.
-
 - [Example setup](#example-setup)
 - [Initialization and installation](#initialization-and-installation)
 - [Execute commands](#execute-commands)
@@ -254,9 +252,6 @@ Expand a section for its examples and options.
 - [Errors and return values](#errors-and-return-values)
 
 ### Example setup
-
-<details>
-<summary>Examples and options</summary>
 
 Examples are independent. They assume an Android `context`, an existing `input.mp4` in app storage, and the following setup. Run suspend calls inside a coroutine.
 
@@ -277,12 +272,7 @@ val operations = ffmpeg.operations()
 fun output(name: String) = File(context.filesDir, name).absolutePath
 ```
 
-</details>
-
 ### Initialization and installation
-
-<details>
-<summary>Examples and options</summary>
 
 Initialize once before processing media. `install` is an optional readiness check; FFmpeg is already included with the library.
 
@@ -327,12 +317,7 @@ ffmpeg.uninstall() // Cancels all tasks; APK-owned binaries remain installed.
 
 `ffmpeg.operations()`, `ffmpeg.commandBuilder()`, and `ffmpeg.sessions()` provide the operation, builder, and session APIs documented below.
 
-</details>
-
 ### Execute commands
-
-<details>
-<summary>Examples and options</summary>
 
 `execute(String)` and `executeAsync(String)` accept FFmpeg arguments without a leading `ffmpeg`. Quotes and backslash escapes are parsed; shell expansion, pipes, and redirects are not executed. The command builder stores raw arguments: `buildAsList()` returns arguments, and `build()` quotes them for the string API.
 
@@ -410,12 +395,7 @@ if (success) {
 
 Pass each option and value as a separate list item, including the entire filter graph as one value. Paths containing spaces need no extra quotes. Input numbers such as `[0:v]` and `[2:a:0]` refer to the order of the `-i` arguments; `-map` selects the filtered video and mixed audio for the output.
 
-</details>
-
 ### Command builder reference
-
-<details>
-<summary>Examples and options</summary>
 
 Create a builder with `ffmpeg.commandBuilder()` or `FFmpegCommandBuilder()`. Every configuration method appends arguments in call order and returns the same builder. Place input options before the corresponding `input`, output options after it, and `output` last. Use a new builder for each command, or call `clear()` before reusing it.
 
@@ -471,12 +451,7 @@ val success = ffmpeg.execute(builder.buildAsList())
 builder.clear()
 ```
 
-</details>
-
 ### Progress and logs
-
-<details>
-<summary>Examples and options</summary>
 
 Pass an `FFmpegHelper.FFmpegCallback` to `execute`, `executeAsync`, or convenience operations to receive progress and logs. Callbacks run on the caller/executor threads; dispatch UI updates to the main thread. `onProgress(progress, time)` uses **0.0–1.0** and milliseconds. Percentage is unknown until FFmpeg reports a duration; successful completion reports 1.0. Input duration may differ from output duration when trimming, concatenating, or changing speed. Stream log lines with `onOutput`; completion retains the last 65,536 characters of process output.
 
@@ -497,12 +472,7 @@ val success = ffmpeg.execute(arguments, object : FFmpegHelper.FFmpegCallback {
 })
 ```
 
-</details>
-
 ### Sessions and cancellation
-
-<details>
-<summary>Examples and options</summary>
 
 `FFmpeg.executeAsync` is a suspend function that returns a session ID as soon as the process is scheduled. It accepts a command string; use the builder's `build()` when constructing it from paths:
 
@@ -567,12 +537,7 @@ val completed = records.getSessionInfo(1L)
 records.removeSession(1L)
 ```
 
-</details>
-
 ### Convenience operations
-
-<details>
-<summary>Examples and options</summary>
 
 Get an operations helper with `ffmpeg.operations()` or `FFmpegOperations(context)`. All 13 processing methods are suspend functions, return a success `Boolean`, accept an optional final `callback: FFmpegHelper.FFmpegCallback? = null`, and overwrite their output. Check the result before opening or exporting it. Examples below are independent and use the shared `inputPath`, `operations`, and `output(name)` from [Example setup](#example-setup).
 
@@ -771,12 +736,7 @@ withContext(Dispatchers.IO) {
 - When writing custom commands, specify the video and audio encoders you want. Hardware encoder availability depends on the device.
 - Network inputs require Internet access. For HTTPS commands, use `-tls_verify 1` to enable certificate verification and `-ca_file` if you need a custom CA.
 
-</details>
-
 ### Media information
-
-<details>
-<summary>Examples and options</summary>
 
 `getMediaInfo` runs ffprobe, waits for completion, and returns `MediaInformation?`. It returns `null` when probing fails. It exposes video and audio streams; subtitle streams and arbitrary tags are not included in this model.
 
@@ -801,12 +761,7 @@ if (info != null) {
 
 Missing numeric metadata defaults to zero. Stream-specific shortcut methods use the first video or audio stream.
 
-</details>
-
 ### Files and Android storage
-
-<details>
-<summary>Examples and options</summary>
 
 Pass readable filesystem paths to FFmpeg. For a Storage Access Framework `content://` URI, copy its contents to app storage first. The caller needs read access to the selected URI.
 
@@ -833,12 +788,7 @@ try {
 
 The demo processes in app storage and exports finished videos to Downloads through MediaStore on Android 10+, without broad media permissions. Older Android versions use the legacy storage permission.
 
-</details>
-
 ### File and formatting utilities
-
-<details>
-<summary>Examples and options</summary>
 
 `FFmpegUtils` provides synchronous filesystem helpers. Run file copying and cleanup on `Dispatchers.IO`. Path helpers only construct names; changing an extension does not convert media.
 
@@ -873,12 +823,7 @@ withContext(Dispatchers.IO) {
 
 `isValidVideoFile`, `isValidAudioFile`, and `isValidImageFile` check existence and a known extension; they do not inspect contents. Use media probing to identify actual audio/video streams. `getFileSize` returns bytes (normally zero for a missing file). `createTempFile` uses `cacheDir/ffmpeg_temp`; use a prefix of at least three characters and an extension without a dot. `cleanupTempFiles` deletes files in that directory. `copyUriToFile` returns `false` on failure, and its destination parent must exist. Delete temporary inputs only after their processing finishes.
 
-</details>
-
 ### Additional APIs
-
-<details>
-<summary>Examples and options</summary>
 
 For most apps, use `FFmpeg` and `ffmpeg.operations()`. The following public APIs are also available for custom integrations. Call `ffmpeg.install()` to check readiness before using execution helpers directly.
 
@@ -976,12 +921,7 @@ val cancelled = FFmpegExecutor.cancel(executorSessionId)
 FFmpegExecutor.cancelAll()
 ```
 
-</details>
-
 ### Progress parsing
-
-<details>
-<summary>Examples and options</summary>
 
 The helper already parses execution output for its progress callback. Use `FFmpegProgressParser` or `FFmpegProgressHandler` when consuming FFmpeg log lines yourself. Both expect standard log lines containing `time=HH:MM:SS.fraction`.
 
@@ -1015,12 +955,7 @@ Without a supplied duration, the parser learns it from a `Duration: ...` line. U
 
 The handler sets `videoQuality` to `0f`; it does not parse encoder quality. Time labels use `HH:MM:SS`, and estimates use the parsed speed. These progress bitrates are in kbit/s, while media information reports bit/s.
 
-</details>
-
 ### Errors and return values
-
-<details>
-<summary>Examples and options</summary>
 
 Check processing `Boolean` results and nullable probe results. Use `onFailure(error)` for execution details and `onOutput(line)` for streamed logs. Coroutine cancellation propagates as `CancellationException`; rethrow it if you catch exceptions around suspend work. A command string with unclosed quotes or a trailing escape, or an invalid operation argument, can throw `IllegalArgumentException`.
 
@@ -1059,8 +994,6 @@ The public exception constructors are available when integrating your own valida
 | `FFmpegException.InsufficientPermissionsException("Read access required")` | Missing permission |
 | `FFmpegException.ProcessCancelledException()` | Process cancelled |
 | `FFmpegException.TimeoutException(30_000L)` | Timeout in milliseconds |
-
-</details>
 
 ## License and distribution
 
