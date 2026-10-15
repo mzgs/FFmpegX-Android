@@ -8,12 +8,12 @@ An Android library for processing audio and video with Kotlin. Compress, convert
 
 ## Features
 
-- ✅ **Ready-made operations** — Compress, trim, merge, resize, rotate, add watermarks, and more.
-- ✅ **Bundled FFmpeg and ffprobe** — No extra downloads for your app's users.
-- ✅ **Kotlin coroutines** — Suspend functions with progress callbacks and cancellation.
-- ✅ **Flexible commands** — Use an argument list, a command string, or the fluent builder.
-- ✅ **Media information** — Read duration, resolution, codecs, and audio details.
-- ✅ **Four architectures** — `arm64-v8a`, `armeabi-v7a`, `x86_64`, and `x86` on Android 7.0+.
+- **Ready-made operations** — Compress, trim, merge, resize, rotate, add watermarks, and more.
+- **Bundled FFmpeg and ffprobe** — No extra downloads for your app's users.
+- **Kotlin coroutines** — Suspend functions with progress callbacks and cancellation.
+- **Flexible commands** — Use an argument list, a command string, or the fluent builder.
+- **Media information** — Read duration, resolution, codecs, and audio details.
+- **Four architectures** — `arm64-v8a`, `armeabi-v7a`, `x86_64`, and `x86` on Android 7.0+.
 
 [Quick start](#quick-start) · [Usage examples](#usage-examples) · [Supported formats](#supported-formats) · [Troubleshooting](#troubleshooting) · [API reference](#api-reference)
 
