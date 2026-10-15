@@ -32,11 +32,11 @@ dependencyResolutionManagement {
 }
 ```
 
-Then add the dependency to the app's `build.gradle.kts`, replacing `<library-tag>` with the Android library release tag you want to build. Tags beginning with `native-ffmpeg-` select native assets and are not Android library versions.
+Then add the dependency to the app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.mzgs:FFmpegX-Android:<library-tag>")
+    implementation("com.github.mzgs:FFmpegX-Android:3.0.0")
 }
 ```
 
