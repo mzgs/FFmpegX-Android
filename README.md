@@ -32,7 +32,7 @@ A normal Gradle build verifies all four ABIs; it fails if any executable is miss
 
 The AAR is `ffmpegx/build/outputs/aar/ffmpegx-release.aar`; the demo APK is `app/build/outputs/apk/debug/app-debug.apk`. To install the demo on a connected device or emulator, run `./gradlew :app:installDebug`.
 
-JitPack uses [jitpack.yml](jitpack.yml) to download the pinned binaries and run `./gradlew :ffmpegx:publishToMavenLocal`. It does not compile FFmpeg or require the NDK, Meson, or Ninja.
+JitPack uses [jitpack.yml](jitpack.yml) to download the pinned binaries and run `./gradlew :ffmpegx:publishToMavenLocal`. The build helpers support its legacy Python runtime, and Gradle installs the required Android SDK packages. It does not compile FFmpeg or require the NDK, Meson, or Ninja.
 
 ### Updating the native binaries
 

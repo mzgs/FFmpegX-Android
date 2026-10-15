@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression checks for checksum validation and safe native installation."""
 import hashlib
+import ast
 import importlib.util
 import io
 import pathlib
@@ -36,7 +37,7 @@ class NativeDownloadTest(unittest.TestCase):
                 bundle.addfile(extra)
         return hashlib.sha256(self.archive.read_bytes()).hexdigest()
 
-    @mock.patch.object(native.subprocess, 'run')
+    @mock.patch.object(native.subprocess, 'check_call')
     def test_installs_all_binaries_and_notices_after_validation(self, verify):
         native.install(self.archive, self.pack(), self.destination)
         verify.assert_called_once()
@@ -45,7 +46,7 @@ class NativeDownloadTest(unittest.TestCase):
         binary = self.destination / next(iter(native.BINARIES))
         self.assertEqual(binary.stat().st_mode & 0o777, 0o755)
 
-    @mock.patch.object(native.subprocess, 'run')
+    @mock.patch.object(native.subprocess, 'check_call')
     def test_checksum_mismatch_does_not_touch_installed_files(self, verify):
         self.pack()
         self.destination.mkdir()
@@ -74,7 +75,7 @@ class NativeDownloadTest(unittest.TestCase):
                 native.install(self.archive, self.pack(), self.destination)
             self.files[name] = contents
 
-    @mock.patch.object(native.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'verify-native'))
+    @mock.patch.object(native.subprocess, 'check_call', side_effect=subprocess.CalledProcessError(1, 'verify-native'))
     def test_invalid_elf_keeps_existing_installation(self, verify):
         existing = self.destination / next(iter(native.BINARIES))
         existing.parent.mkdir(parents=True)
@@ -117,6 +118,14 @@ class SourceCacheTest(unittest.TestCase):
             self.assertEqual(native.checksum(cached), digest)
             self.assertEqual((source / 'version.txt').read_text(), 'new version')
             self.assertEqual((source / '.extracted').read_text().strip(), digest)
+
+
+class LegacyPythonCompatibilityTest(unittest.TestCase):
+    def test_build_helpers_parse_on_jitpacks_legacy_python(self):
+        for name in ('download-native.py', 'verify-native.py'):
+            source = (native.ROOT / 'scripts' / name).read_text()
+            with self.subTest(name=name):
+                ast.parse(source, feature_version=(3, 4))
 
 
 if __name__ == '__main__':

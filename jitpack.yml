@@ -1,7 +1,5 @@
 jdk:
   - openjdk17
-before_install:
-  - sdkmanager "platforms;android-35"
-  - python3 scripts/download-native.py
 install:
-  - ./gradlew :ffmpegx:publishToMavenLocal
+  - python3 --version
+  - python3 scripts/download-native.py && ./gradlew :ffmpegx:publishToMavenLocal
