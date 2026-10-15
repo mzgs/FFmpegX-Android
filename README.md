@@ -1,19 +1,244 @@
 # FFmpegX-Android
 
-An Android helper library for processing audio and video in your app. Compress, convert, trim, merge, resize, and edit media with Kotlin suspend functions, progress callbacks, and cancellation. Use the command builder or run FFmpeg arguments directly when you need more control.
+An Android library for processing audio and video with Kotlin. Compress, convert, trim, merge, and edit media with simple functions or your own FFmpeg commands.
 
-| Requirement | Supported |
+[![JitPack](https://jitpack.io/v/mzgs/FFmpegX-Android.svg)](https://jitpack.io/#mzgs/FFmpegX-Android)
+![Android API 24+](https://img.shields.io/badge/Android-API%2024%2B-3DDC84?logo=android&logoColor=white)
+![Kotlin Coroutines](https://img.shields.io/badge/Kotlin-Coroutines-7F52FF?logo=kotlin&logoColor=white)
+
+## Features
+
+- ✅ **Ready-made operations** — Compress, trim, merge, resize, rotate, add watermarks, and more.
+- ✅ **Bundled FFmpeg and ffprobe** — No extra downloads for your app's users.
+- ✅ **Kotlin coroutines** — Suspend functions with progress callbacks and cancellation.
+- ✅ **Flexible commands** — Use an argument list, a command string, or the fluent builder.
+- ✅ **Media information** — Read duration, resolution, codecs, and audio details.
+- ✅ **Four architectures** — `arm64-v8a`, `armeabi-v7a`, `x86_64`, and `x86` on Android 7.0+.
+
+[Quick start](#quick-start) · [Usage examples](#usage-examples) · [Supported formats](#supported-formats) · [Troubleshooting](#troubleshooting) · [API reference](#api-reference)
+
+## Quick start
+
+### 1. Add JitPack
+
+In your project's `settings.gradle.kts`:
+
+```kotlin
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
+}
+```
+
+### 2. Add the library
+
+In your app's `build.gradle.kts`:
+
+```kotlin
+dependencies {
+    implementation("com.github.mzgs:FFmpegX-Android:3.0.0")
+}
+
+android {
+    packaging {
+        jniLibs.useLegacyPackaging = true
+    }
+}
+```
+
+Keep `android:extractNativeLibs="true"` if your app overrides the library's manifest setting.
+
+### 3. Quick start example
+
+Convert a video to MP4 and track its progress. Place an existing video at `filesDir/input.mp4`, or use your own readable path.
+
+```kotlin
+import android.util.Log
+import androidx.lifecycle.lifecycleScope
+import com.mzgs.ffmpegx.FFmpeg
+import com.mzgs.ffmpegx.FFmpegHelper
+import java.io.File
+import kotlinx.coroutines.launch
+
+// Inside Activity.onCreate. Requires lifecycle-runtime-ktx in your app.
+val ffmpeg = FFmpeg.initialize(this)
+val input = File(filesDir, "input.mp4")
+val output = File(filesDir, "converted.mp4")
+
+lifecycleScope.launch {
+    ffmpeg.execute(
+        command = "-y -i \"${input.absolutePath}\" -c:v libx264 -c:a aac \"${output.absolutePath}\"",
+        callback = object : FFmpegHelper.FFmpegCallback {
+            override fun onStart() { Log.d("FFmpeg", "Started") }
+
+            override fun onProgress(progress: Float, time: Long) {
+                Log.d("FFmpeg", "${(progress * 100).toInt()}% at ${time}ms")
+            }
+
+            override fun onOutput(line: String) { Log.d("FFmpeg", line) }
+            override fun onSuccess(output: String?) { Log.d("FFmpeg", "Video ready") }
+            override fun onFailure(error: String) { Log.e("FFmpeg", error) }
+            override fun onFinish() { Log.d("FFmpeg", "Finished") }
+        }
+    )
+}
+```
+
+The same conversion using the fluent API:
+
+```kotlin
+val command = ffmpeg.commandBuilder()
+    .input(input.absolutePath)
+    .overwriteOutput()
+    .videoCodec("libx264")
+    .audioCodec("aac")
+    .output(output.absolutePath)
+    .build()
+
+lifecycleScope.launch {
+    val success = ffmpeg.execute(command)
+}
+```
+
+Initialize once and run processing calls in a coroutine. Progress is `0.0`–`1.0`; post UI updates to the main thread. Processing returns `true` on success; invalid arguments and initialization failures can throw exceptions.
+
+## Usage examples
+
+Use the initialized `ffmpeg` from above. Run processing calls inside a coroutine, with an existing input and a different, writable output path.
+
+### Common operations
+
+```kotlin
+val operations = ffmpeg.operations()
+
+// Extract audio as MP3.
+val extracted = operations.extractAudio(inputPath, audioPath)
+
+// Keep 10 seconds, starting at 5 seconds.
+val trimmed = operations.trimVideo(inputPath, outputPath, 5.0, 10.0)
+
+// Fit the video inside 1280 × 720, preserving its aspect ratio.
+val resized = operations.resizeVideo(inputPath, outputPath, 1280, 720)
+
+// Join compatible clips in order.
+val merged = operations.mergeVideos(listOf(firstPath, secondPath), outputPath)
+```
+
+These are independent examples. Operations overwrite existing outputs, and trimming follows keyframes.
+
+| More tasks | Method |
 | --- | --- |
-| Library version | `3.0.0` |
-| Android | 7.0+ (API 24+) |
-| Architectures | `arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86` |
+| Convert video format | `convertVideo(...)` |
+| Rotate or reverse | `rotateVideo(...)`, `reverseVideo(...)` |
+| Add a watermark or subtitles | `addWatermark(...)`, `addSubtitles(...)` |
+| Create a GIF or extract images | `createGif(...)`, `extractFrames(...)` |
+| Change playback speed | `changeVideoSpeed(...)` |
 
-FFmpeg and ffprobe are included with the library. See [License and distribution](#license-and-distribution) before distributing your app.
+See [all operations and options](#convenience-operations) for examples.
 
-## Contents
+### Custom commands
 
-- [Add to your app](#add-to-your-app)
-- [Quick start](#quick-start)
+Pass arguments without the `ffmpeg` executable name. Paths with spaces need no extra quoting.
+
+```kotlin
+val success = ffmpeg.execute(listOf(
+    "-y", "-i", inputPath,
+    "-c:v", "libx264", "-crf", "23",
+    "-c:a", "aac",
+    outputPath
+))
+```
+
+### Command builder (fluent API)
+
+Create a 30-second clip starting at 10 seconds, resize it to 1280 × 720, and encode it as H.264 video with AAC audio. This uses `ffmpeg` and `input` from Quick start; the source video should be at least 40 seconds long.
+
+```kotlin
+val editedVideo = File(filesDir, "edited.mp4")
+
+val command = ffmpeg.commandBuilder()
+    .input(input.absolutePath)
+    .overwriteOutput()
+    .videoCodec("libx264")
+    .videoBitrate("2M")
+    .videoFilter("scale=1280:720")
+    .audioCodec("aac")
+    .audioBitrate("128k")
+    .audioSampleRate(44100)
+    .startTime(10.0)
+    .duration(30.0)
+    .customOption("-preset", "fast")
+    .output(editedVideo.absolutePath)
+    .build()
+
+lifecycleScope.launch {
+    val success = ffmpeg.execute(command)
+    if (success) {
+        // The edited video is ready at editedVideo.absolutePath.
+    }
+}
+```
+
+See the [builder reference](#command-builder-reference) for all available options.
+
+### Inspect media
+
+```kotlin
+val info = ffmpeg.getMediaInfo(inputPath)
+val durationMs = info?.duration
+val video = info?.videoStreams?.firstOrNull()
+val width = video?.width
+val height = video?.height
+```
+
+Returns `null` if inspection fails. Duration is in milliseconds.
+
+### Progress and cancellation
+
+Pass an `FFmpegHelper.FFmpegCallback` to receive progress, logs, and failure details. Progress runs from `0.0` to `1.0`; dispatch UI updates to the main thread. See the [callback example](#progress-and-logs).
+
+```kotlin
+// Schedule work and keep its session ID.
+val sessionId = ffmpeg.executeAsync(
+    ffmpeg.commandBuilder()
+        .overwriteOutput().input(inputPath)
+        .videoCodec("libx264").audioCodec("aac")
+        .output(outputPath).build()
+)
+
+// When the user requests cancellation:
+ffmpeg.cancel(sessionId)
+```
+
+Cancelling a coroutine awaiting `execute` also stops its process.
+
+## Supported formats
+
+| Media | Examples |
+| --- | --- |
+| Video | H.264, H.265/HEVC, VP8, VP9, AV1 |
+| Audio | AAC, MP3, Opus, Vorbis, FLAC, PCM/WAV |
+| Containers and images | MP4, MOV, MKV, AVI, WebM, FLV, GIF, PNG, JPEG, WebP |
+
+The convenience functions provide [format and quality presets](#convenience-operations). Custom commands give you control over encoders, filters, and containers.
+
+## Troubleshooting
+
+| Problem | What to check |
+| --- | --- |
+| Binaries missing or unusable | Enable `jniLibs.useLegacyPackaging = true` and keep native library extraction enabled. |
+| A document-picker URI fails | Copy `content://` input to app storage first; see the [storage example](#files-and-android-storage). |
+| A command returns `false` | Check callback logs, input paths, the output directory, and codec/container compatibility. |
+| A trim starts at a nearby frame | The trim helper copies streams. Re-encode with a custom command for frame-accurate cuts. |
+
+## API reference
+
+Expand a section for its examples and options.
+
+- [Example setup](#example-setup)
 - [Initialization and installation](#initialization-and-installation)
 - [Execute commands](#execute-commands)
 - [Complex example without the command builder](#complex-example-without-the-command-builder)
@@ -27,84 +252,37 @@ FFmpeg and ffprobe are included with the library. See [License and distribution]
 - [Additional APIs](#additional-apis)
 - [Progress parsing](#progress-parsing)
 - [Errors and return values](#errors-and-return-values)
-- [License and distribution](#license-and-distribution)
 
-## Add to your app
+### Example setup
 
-Add JitPack to the consuming project's `settings.gradle.kts`:
+<details>
+<summary>Examples and options</summary>
 
-```kotlin
-dependencyResolutionManagement {
-    repositories {
-        google()
-        mavenCentral()
-        maven { url = uri("https://jitpack.io") }
-    }
-}
-```
-
-Then add the dependency to the app's `build.gradle.kts`:
+Examples are independent. They assume an Android `context`, an existing `input.mp4` in app storage, and the following setup. Run suspend calls inside a coroutine.
 
 ```kotlin
-dependencies {
-    implementation("com.github.mzgs:FFmpegX-Android:3.0.0")
-}
-```
-
-Enable native library extraction in the app's `build.gradle.kts`:
-
-```kotlin
-android {
-    packaging { jniLibs.useLegacyPackaging = true }
-}
-```
-
-The library sets `android:extractNativeLibs="true"` in its manifest. Keep this enabled if your app overrides the setting.
-
-## Quick start
-
-```kotlin
-import androidx.lifecycle.lifecycleScope
 import com.mzgs.ffmpegx.FFmpeg
-import java.io.File
-import kotlinx.coroutines.launch
-
-// Inside Activity.onCreate; requires androidx.lifecycle:lifecycle-runtime-ktx.
-val context = this
-val ffmpeg = FFmpeg.initialize(context)
-val inputFile = File(context.filesDir, "input.mp4") // Supply an existing video.
-val outputFile = File(context.filesDir, "compressed.mp4")
-
-lifecycleScope.launch {
-    val success = ffmpeg.operations().compressVideo(
-        inputFile.absolutePath,
-        outputFile.absolutePath
-    )
-    if (success) {
-        val info = ffmpeg.getMediaInfo(outputFile.absolutePath)
-        val durationMs = info?.duration
-        val video = info?.videoStreams?.firstOrNull()
-    }
-}
-```
-
-Initialize once with an application or activity context. Run media operations and `getMediaInfo` in a coroutine. Processing functions return `true` on success; check the result before using the output. `getMediaInfo` returns `null` if inspection fails, with duration in milliseconds and bitrate in bits per second. Initialization or argument errors can throw exceptions.
-
-The examples below use `context`, an initialized `ffmpeg`, and readable `inputPath` / writable `outputPath` strings. Run suspend calls inside your coroutine scope. For operation examples, use these shared values and imports:
-
-```kotlin
 import com.mzgs.ffmpegx.FFmpegOperations.AudioFormat
 import com.mzgs.ffmpegx.FFmpegOperations.VideoFormat
 import com.mzgs.ffmpegx.FFmpegOperations.VideoQuality
 import com.mzgs.ffmpegx.FFmpegOperations.WatermarkPosition
+import java.io.File
 
+val ffmpeg = FFmpeg.initialize(context)
+val inputFile = File(context.filesDir, "input.mp4")
+val outputFile = File(context.filesDir, "compressed.mp4")
 val inputPath = inputFile.absolutePath
 val outputPath = outputFile.absolutePath
 val operations = ffmpeg.operations()
 fun output(name: String) = File(context.filesDir, name).absolutePath
 ```
 
-## Initialization and installation
+</details>
+
+### Initialization and installation
+
+<details>
+<summary>Examples and options</summary>
 
 Initialize once before processing media. `install` is an optional readiness check; FFmpeg is already included with the library.
 
@@ -149,7 +327,12 @@ ffmpeg.uninstall() // Cancels all tasks; APK-owned binaries remain installed.
 
 `ffmpeg.operations()`, `ffmpeg.commandBuilder()`, and `ffmpeg.sessions()` provide the operation, builder, and session APIs documented below.
 
-## Execute commands
+</details>
+
+### Execute commands
+
+<details>
+<summary>Examples and options</summary>
 
 `execute(String)` and `executeAsync(String)` accept FFmpeg arguments without a leading `ffmpeg`. Quotes and backslash escapes are parsed; shell expansion, pipes, and redirects are not executed. The command builder stores raw arguments: `buildAsList()` returns arguments, and `build()` quotes them for the string API.
 
@@ -174,7 +357,7 @@ val converted = ffmpeg.execute(command)
 
 `execute` returns `true` for exit code 0 and `false` for a failed or explicitly cancelled process. It waits for completion. `executeAsync(command, callback)` returns a session ID without waiting; see [Sessions and cancellation](#sessions-and-cancellation).
 
-### Complex example without the command builder
+#### Complex example without the command builder
 
 Create a 15-second MP4 starting at 5 seconds into a video. This example fits the video into 1280×720, adds a translucent watermark, mixes quiet background music with the original audio, and fades the picture and audio out at the end.
 
@@ -227,7 +410,12 @@ if (success) {
 
 Pass each option and value as a separate list item, including the entire filter graph as one value. Paths containing spaces need no extra quotes. Input numbers such as `[0:v]` and `[2:a:0]` refer to the order of the `-i` arguments; `-map` selects the filtered video and mixed audio for the output.
 
-## Command builder reference
+</details>
+
+### Command builder reference
+
+<details>
+<summary>Examples and options</summary>
 
 Create a builder with `ffmpeg.commandBuilder()` or `FFmpegCommandBuilder()`. Every configuration method appends arguments in call order and returns the same builder. Place input options before the corresponding `input`, output options after it, and `output` last. Use a new builder for each command, or call `clear()` before reusing it.
 
@@ -283,7 +471,12 @@ val success = ffmpeg.execute(builder.buildAsList())
 builder.clear()
 ```
 
-## Progress and logs
+</details>
+
+### Progress and logs
+
+<details>
+<summary>Examples and options</summary>
 
 Pass an `FFmpegHelper.FFmpegCallback` to `execute`, `executeAsync`, or convenience operations to receive progress and logs. Callbacks run on the caller/executor threads; dispatch UI updates to the main thread. `onProgress(progress, time)` uses **0.0–1.0** and milliseconds. Percentage is unknown until FFmpeg reports a duration; successful completion reports 1.0. Input duration may differ from output duration when trimming, concatenating, or changing speed. Stream log lines with `onOutput`; completion retains the last 65,536 characters of process output.
 
@@ -304,7 +497,12 @@ val success = ffmpeg.execute(arguments, object : FFmpegHelper.FFmpegCallback {
 })
 ```
 
-## Sessions and cancellation
+</details>
+
+### Sessions and cancellation
+
+<details>
+<summary>Examples and options</summary>
 
 `FFmpeg.executeAsync` is a suspend function that returns a session ID as soon as the process is scheduled. It accepts a command string; use the builder's `build()` when constructing it from paths:
 
@@ -323,7 +521,7 @@ ffmpeg.cancelAll()                      // Cancels all running sessions.
 
 Session IDs are unique, and `sessions().activeSessions` is a `StateFlow` containing running and retained terminal sessions, including progress and completion/failure/cancellation state. Cancelling a coroutine awaiting `execute` or `getMediaInfo` stops its process. After `executeAsync` returns, use `cancel(sessionId)` or `cancelAll()` to stop scheduled work. Use `sessions().clearCompletedSessions()` to release history after inspecting it.
 
-### Inspect and observe sessions
+#### Inspect and observe sessions
 
 ```kotlin
 import kotlinx.coroutines.flow.collect
@@ -353,7 +551,7 @@ manager.clearCompletedSessions() // Removes every non-RUNNING history entry.
 manager.removeSession(sessionId) // Removes history only; does not cancel a process.
 ```
 
-### Manage session records directly
+#### Manage session records directly
 
 The executor updates its shared manager automatically. These public methods also let you maintain records in a separate manager; adding or changing a record does not start or control a native process:
 
@@ -369,11 +567,16 @@ val completed = records.getSessionInfo(1L)
 records.removeSession(1L)
 ```
 
-## Convenience operations
+</details>
 
-Get an operations helper with `ffmpeg.operations()` or `FFmpegOperations(context)`. All 13 processing methods are suspend functions, return a success `Boolean`, accept an optional final `callback: FFmpegHelper.FFmpegCallback? = null`, and overwrite their output. Check the result before opening or exporting it. Examples below are independent and use the shared `inputPath`, `operations`, and `output(name)` from [Quick start](#quick-start).
+### Convenience operations
 
-### Compress video
+<details>
+<summary>Examples and options</summary>
+
+Get an operations helper with `ffmpeg.operations()` or `FFmpegOperations(context)`. All 13 processing methods are suspend functions, return a success `Boolean`, accept an optional final `callback: FFmpegHelper.FFmpegCallback? = null`, and overwrite their output. Check the result before opening or exporting it. Examples below are independent and use the shared `inputPath`, `operations`, and `output(name)` from [Example setup](#example-setup).
+
+#### Compress video
 
 Encodes H.264 video with AAC audio. Default quality is `MEDIUM`.
 
@@ -392,7 +595,7 @@ val compressed = operations.compressVideo(
 
 Lower CRF generally improves quality and increases file size. Slower presets take longer; compression does not guarantee a smaller file for every input.
 
-### Extract audio
+#### Extract audio
 
 Selects the first audio stream and encodes it to the chosen format. Default is MP3.
 
@@ -412,7 +615,7 @@ val extracted = operations.extractAudio(
 
 The helper passes the configured bitrate to FFmpeg. PCM and FLAC output size depends on the sample format and audio content; it is not a fixed target bitrate.
 
-### Convert video
+#### Convert video
 
 Choose the output container and the helper's matching video/audio encoders:
 
@@ -431,7 +634,7 @@ val converted = operations.convertVideo(
 | `WEBM` | `libvpx` | `libvorbis` | `.webm` |
 | `FLV` | `flv` | `libmp3lame` | `.flv` |
 
-### Trim video
+#### Trim video
 
 Start and duration are in **seconds**. This example keeps a 10-second segment starting at 5 seconds:
 
@@ -443,7 +646,7 @@ val trimmed = operations.trimVideo(
 
 Start must be finite and nonnegative; duration must be finite and positive. Trimming copies streams, so cuts are limited by keyframes. For frame-accurate trimming, use a command that re-encodes the video.
 
-### Merge videos
+#### Merge videos
 
 Concatenates the inputs in list order using stream copying:
 
@@ -456,7 +659,7 @@ val merged = operations.mergeVideos(
 
 The list must be nonempty, paths cannot contain newlines, and inputs need compatible codecs, time bases, and stream layouts. The helper removes its temporary concat list when finished.
 
-### Resize video
+#### Resize video
 
 Default `maintainAspectRatio = true` fits the image inside the requested dimensions and pads to that exact size. Set it to `false` to stretch instead. Width and height must be positive and even.
 
@@ -467,7 +670,7 @@ val resized = operations.resizeVideo(
 )
 ```
 
-### Rotate video
+#### Rotate video
 
 Supports 90, 180, or 270 degrees clockwise; other values return `false`.
 
@@ -475,7 +678,7 @@ Supports 90, 180, or 270 degrees clockwise; other values return `false`.
 val rotated = operations.rotateVideo(inputPath, output("rotated.mp4"), degrees = 90)
 ```
 
-### Add an image watermark
+#### Add an image watermark
 
 The default position is `BOTTOM_RIGHT`. Corners use a 10-pixel inset. Positions are `TOP_LEFT`, `TOP_RIGHT`, `BOTTOM_LEFT`, `BOTTOM_RIGHT`, and `CENTER`.
 
@@ -488,7 +691,7 @@ val watermarked = operations.addWatermark(
 )
 ```
 
-### Extract frames
+#### Extract frames
 
 Supply a numbered image pattern. `fps` is a positive integer and defaults to 1. Create the destination directory first.
 
@@ -501,7 +704,7 @@ val framesExtracted = operations.extractFrames(
 )
 ```
 
-### Create a GIF
+#### Create a GIF
 
 Defaults: `width = 320`, `fps = 10`, `startTime = null`, `duration = null`. Height follows the input's aspect ratio. Times are in seconds.
 
@@ -514,7 +717,7 @@ val gifCreated = operations.createGif(
 
 Width and fps must be positive; a supplied start must be finite and nonnegative, and a supplied duration must be finite and positive.
 
-### Change playback speed
+#### Change playback speed
 
 `2.0f` doubles speed; `0.5f` halves it. Speed must be finite and positive. `adjustAudio = true` is the default and changes audio tempo along with video; `false` leaves audio tempo unchanged. Tempo filters are chained for speeds outside 0.5–2.0.
 
@@ -524,7 +727,7 @@ val spedUp = operations.changeVideoSpeed(
 )
 ```
 
-### Add selectable subtitles
+#### Add selectable subtitles
 
 Copies video/audio and adds a subtitle stream. MP4/MOV/M4V use `mov_text`; other extensions use SRT, so choose a compatible container such as MKV.
 
@@ -538,7 +741,7 @@ val subtitled = operations.addSubtitles(
 
 To burn subtitles into pixels, use an explicit command with FFmpeg's `subtitles` filter. Supply `fontsdir=/system/fonts` or an app font directory and choose an available font, for example `force_style='Fontname=Roboto'`. A missing font can leave subtitles invisible even when a command succeeds.
 
-### Reverse video
+#### Reverse video
 
 Reverses video and, by default, audio. `reverseAudio = false` leaves audio in its original order. Reversal buffers media in memory; use short clips or manage segmentation yourself.
 
@@ -548,7 +751,7 @@ val reversed = operations.reverseVideo(
 )
 ```
 
-### Inspect files through operations
+#### Inspect files through operations
 
 These five methods probe media synchronously. Call them on `Dispatchers.IO`; use `ffmpeg.getMediaInfo` for suspend inspection in one probe.
 
@@ -562,13 +765,18 @@ withContext(Dispatchers.IO) {
 }
 ```
 
-### Operation notes
+#### Operation notes
 
 - Output paths must be writable and different from input paths. When an operation copies audio or video, the output container must support those codecs.
 - When writing custom commands, specify the video and audio encoders you want. Hardware encoder availability depends on the device.
 - Network inputs require Internet access. For HTTPS commands, use `-tls_verify 1` to enable certificate verification and `-ca_file` if you need a custom CA.
 
-## Media information
+</details>
+
+### Media information
+
+<details>
+<summary>Examples and options</summary>
 
 `getMediaInfo` runs ffprobe, waits for completion, and returns `MediaInformation?`. It returns `null` when probing fails. It exposes video and audio streams; subtitle streams and arbitrary tags are not included in this model.
 
@@ -593,7 +801,12 @@ if (info != null) {
 
 Missing numeric metadata defaults to zero. Stream-specific shortcut methods use the first video or audio stream.
 
-## Files and Android storage
+</details>
+
+### Files and Android storage
+
+<details>
+<summary>Examples and options</summary>
 
 Pass readable filesystem paths to FFmpeg. For a Storage Access Framework `content://` URI, copy its contents to app storage first. The caller needs read access to the selected URI.
 
@@ -620,7 +833,12 @@ try {
 
 The demo processes in app storage and exports finished videos to Downloads through MediaStore on Android 10+, without broad media permissions. Older Android versions use the legacy storage permission.
 
-## File and formatting utilities
+</details>
+
+### File and formatting utilities
+
+<details>
+<summary>Examples and options</summary>
 
 `FFmpegUtils` provides synchronous filesystem helpers. Run file copying and cleanup on `Dispatchers.IO`. Path helpers only construct names; changing an extension does not convert media.
 
@@ -655,11 +873,16 @@ withContext(Dispatchers.IO) {
 
 `isValidVideoFile`, `isValidAudioFile`, and `isValidImageFile` check existence and a known extension; they do not inspect contents. Use media probing to identify actual audio/video streams. `getFileSize` returns bytes (normally zero for a missing file). `createTempFile` uses `cacheDir/ffmpeg_temp`; use a prefix of at least three characters and an extension without a dot. `cleanupTempFiles` deletes files in that directory. `copyUriToFile` returns `false` on failure, and its destination parent must exist. Delete temporary inputs only after their processing finishes.
 
-## Additional APIs
+</details>
+
+### Additional APIs
+
+<details>
+<summary>Examples and options</summary>
 
 For most apps, use `FFmpeg` and `ffmpeg.operations()`. The following public APIs are also available for custom integrations. Call `ffmpeg.install()` to check readiness before using execution helpers directly.
 
-### FFmpegHelper
+#### FFmpegHelper
 
 `execute(String)` and `execute(List<String>)` are suspend functions returning success. `executeAsync(String)` is a regular function returning a session ID. All accept the same optional `FFmpegCallback` shown in [Progress and logs](#progress-and-logs).
 
@@ -692,7 +915,7 @@ withContext(Dispatchers.IO) {
 
 Each shortcut starts its own probe. Use one `getMediaInformationAsync` call when you need several fields. Unavailable numeric results are zero, codec/resolution results are `null`, and file-type checks return `false`. `isAudioFile` means audio is present and no video stream is present.
 
-### FFmpegAudioExtractor
+#### FFmpegAudioExtractor
 
 `extractAudioWithFallback` encodes the first audio stream as 192 kbit/s MP3 with the bundled LAME encoder. It overwrites the output, accepts an optional `FFmpegCallback`, and returns a success `Boolean`; there is no additional encoder fallback.
 
@@ -703,7 +926,7 @@ val extractor = FFmpegAudioExtractor(FFmpegHelper(context))
 val extracted = extractor.extractAudioWithFallback(inputPath, output("audio.mp3"))
 ```
 
-### FFmpegInstaller and FFmpegTester
+#### FFmpegInstaller and FFmpegTester
 
 The listener uses `onProgressUpdate(Int, String)` and `onInstallComplete(Boolean, String)` as demonstrated in [Initialization and installation](#initialization-and-installation). `installFFmpeg` accepts that listener optionally and performs verification on IO.
 
@@ -731,7 +954,7 @@ installer.uninstallFFmpeg() // Cancels tasks; does not remove APK binaries.
 
 `FFmpegTester.TestResult` contains `success: Boolean`, `message: String`, and `version: String?`.
 
-### FFmpegExecutor
+#### FFmpegExecutor
 
 `execute(binaryPath, command, callback)` takes the executable path separately from its arguments and immediately returns a session ID. `onOutput` receives process logs, `onError` reports execution exceptions, and `onComplete` receives the exit code (0 for success, 255 for explicit cancellation, or another code for failure). Callbacks run on a background thread. Use `FFmpeg.execute` for the library's usual command handling and HTTPS certificate support.
 
@@ -753,7 +976,12 @@ val cancelled = FFmpegExecutor.cancel(executorSessionId)
 FFmpegExecutor.cancelAll()
 ```
 
-## Progress parsing
+</details>
+
+### Progress parsing
+
+<details>
+<summary>Examples and options</summary>
 
 The helper already parses execution output for its progress callback. Use `FFmpegProgressParser` or `FFmpegProgressHandler` when consuming FFmpeg log lines yourself. Both expect standard log lines containing `time=HH:MM:SS.fraction`.
 
@@ -787,7 +1015,12 @@ Without a supplied duration, the parser learns it from a `Duration: ...` line. U
 
 The handler sets `videoQuality` to `0f`; it does not parse encoder quality. Time labels use `HH:MM:SS`, and estimates use the parsed speed. These progress bitrates are in kbit/s, while media information reports bit/s.
 
-## Errors and return values
+</details>
+
+### Errors and return values
+
+<details>
+<summary>Examples and options</summary>
 
 Check processing `Boolean` results and nullable probe results. Use `onFailure(error)` for execution details and `onOutput(line)` for streamed logs. Coroutine cancellation propagates as `CancellationException`; rethrow it if you catch exceptions around suspend work. A command string with unclosed quotes or a trailing escape, or an invalid operation argument, can throw `IllegalArgumentException`.
 
@@ -827,6 +1060,10 @@ The public exception constructors are available when integrating your own valida
 | `FFmpegException.ProcessCancelledException()` | Process cancelled |
 | `FFmpegException.TimeoutException(30_000L)` | Timeout in milliseconds |
 
+</details>
+
 ## License and distribution
 
 The bundled FFmpeg includes GPLv3 components. Distributing an app that includes this library requires complying with the applicable GPL and bundled dependency licenses, including corresponding source and build instructions. Preserve the included license notices.
+
+Source pins are in [scripts/native-sources.txt](scripts/native-sources.txt).
