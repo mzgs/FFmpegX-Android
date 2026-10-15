@@ -15,7 +15,7 @@ case "$(uname -s)" in
     *) echo 'Build on macOS or Linux.' >&2; exit 1 ;;
 esac
 export PATH="$ROOT/.native-tools/bin:$NDK/../../cmake/3.22.1/bin:$TOOLCHAIN/bin:$PATH"
-for tool in curl tar make cmake pkg-config meson ninja python3; do
+for tool in curl tar make cmake pkg-config meson ninja python3 shasum perl; do
     command -v "$tool" >/dev/null || { echo "Missing build tool: $tool" >&2; exit 1; }
 done
 [ -d "$TOOLCHAIN" ] || { echo "NDK not found: $NDK" >&2; exit 1; }
@@ -24,18 +24,22 @@ while read -r name url; do
     archive="$BUILD/downloads/$name.tar"
     expected=$(awk -v file="$name.tar" '$2 == file {print $1}' "$ROOT/scripts/native-sources.sha256")
     [ -n "$expected" ] || { echo "Missing source checksum: $name" >&2; exit 1; }
+    if [ -f "$archive" ] && [ "$(shasum -a 256 "$archive" | awk '{print $1}')" != "$expected" ]; then
+        rm "$archive"
+    fi
     if [ ! -f "$archive" ]; then
         curl -fL --retry 3 "$url" -o "$archive.part"
+        actual=$(shasum -a 256 "$archive.part" | awk '{print $1}')
+        [ "$actual" = "$expected" ] || { echo "Source checksum mismatch: $name" >&2; exit 1; }
         mv "$archive.part" "$archive"
     fi
-    actual=$(shasum -a 256 "$archive" | awk '{print $1}')
-    [ "$actual" = "$expected" ] || { echo "Source checksum mismatch: $name" >&2; exit 1; }
     source="$BUILD/sources/$name"
-    if [ ! -f "$source/.extracted" ]; then
+    if [ ! -f "$source/.extracted" ] || [ "$(cat "$source/.extracted")" != "$expected" ]; then
+        rm -rf "$source"
         mkdir -p "$source"
         if [ "$name" = aom ]; then tar xf "$archive" -C "$source"
         else tar xf "$archive" -C "$source" --strip-components=1; fi
-        touch "$source/.extracted"
+        echo "$expected" > "$source/.extracted"
     fi
     notices="$ROOT/ffmpegx/src/main/assets/ffmpeg-licenses/$name"
     mkdir -p "$notices"

@@ -10,34 +10,58 @@ Kotlin library for running **upstream FFmpeg 8.1.3 and ffprobe** on Android 7.0+
 | Supported ABIs | `arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86` |
 | Build configuration | Java 17, Kotlin 2.2.10, Android Gradle Plugin 9.4.1, Gradle 9.8.1 |
 
-Native executables are built from source and are not tracked in Git. Build them before running Gradle. This feature set enables GPLv3 components; see [License and distribution](#license-and-distribution).
+Native executables are downloaded from a checksum-pinned GitHub Release and are not tracked in Git. JitPack downloads them before running Gradle; local builds use the same download script. This feature set enables GPLv3 components; see [License and distribution](#license-and-distribution).
 
 The build keeps FFmpeg's built-in codecs, filters, formats, and protocols enabled wherever their Android dependencies are available. It adds x264, x265, libvpx, libaom, dav1d, LAME, Opus, Vorbis, WebP, FreeType, HarfBuzz, FriBidi, libass, and OpenSSL. This is a concrete feature set, not a promise that every optional FFmpeg dependency or device feature exists. Inspect `-encoders`, `-decoders`, `-filters`, `-formats`, `-protocols`, and `-buildconf` for the exact inventory.
 
-The optional libvidstab dependency is not included, so `vidstabdetect` and `vidstabtransform` are unavailable. Production pipeline validation is recorded in `validation/production-pipeline/README.md`.
+The optional libvidstab dependency is not included, so `vidstabdetect` and `vidstabtransform` are unavailable.
 
 ## Build
 
-Requirements: Java 17, Android SDK 35, NDK `27.0.12077973`, SDK CMake `3.22.1`, Python 3 with venv/pip, make, Perl, curl, tar, shasum, pkg-config, Meson, and Ninja. Build on macOS or Linux. Source URLs and SHA-256 checksums are pinned in [scripts/native-sources.txt](scripts/native-sources.txt) and [scripts/native-sources.sha256](scripts/native-sources.sha256).
+Requirements: Java 17, Android SDK 35, Python 3, and curl. The native download URL and SHA-256 checksum are pinned in [scripts/native-release.json](scripts/native-release.json). The script checks the archive checksum, all eight executables, and license notices before replacing the installed binaries.
 
 ```bash
 export JAVA_HOME=/path/to/jdk17
 export ANDROID_HOME=/path/to/android/sdk
-export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
-sdkmanager "platforms;android-35" "ndk;27.0.12077973" "cmake;3.22.1"
-python3 -m venv .native-tools
-PIP_USER=false .native-tools/bin/pip install meson ninja
-./build-ffmpeg.sh
+sdkmanager "platforms;android-35"
+python3 scripts/download-native.py
 ./gradlew :ffmpegx:assembleRelease :app:assembleDebug
 ```
 
-`./build-ffmpeg.sh arm64-v8a` builds one ABI for development. A normal Gradle build verifies all four ABIs; it fails if any executable is missing, has the wrong architecture, requires an unpackaged library, or lacks 16 KiB segment alignment. Do the full native build before producing an AAR. The cache is in `.native-build/`; delete its `work` and `install` directories when changing dependency versions or compiler flags. Downloads are verified again on every run.
+A normal Gradle build verifies all four ABIs; it fails if any executable is missing, has the wrong architecture, requires an unpackaged library, or lacks 16 KiB segment alignment. Downloads are cached by checksum in `.native-build/prebuilt/` and verified again on every run. For an offline build, use `python3 scripts/download-native.py --archive /path/to/ffmpeg-android.tar.gz` with a copy of the pinned archive.
 
 The AAR is `ffmpegx/build/outputs/aar/ffmpegx-release.aar`; the demo APK is `app/build/outputs/apk/debug/app-debug.apk`. To install the demo on a connected device or emulator, run `./gradlew :app:installDebug`.
 
-`./create-library-release.sh` builds the native programs and release AAR, then packages the AAR, corresponding source archives/build instructions, and `SHA256SUMS` in `releases/`. It does not publish anything.
+JitPack uses [jitpack.yml](jitpack.yml) to download the pinned binaries and run `./gradlew :ffmpegx:publishToMavenLocal`. It does not compile FFmpeg or require the NDK, Meson, or Ninja.
+
+### Updating the native binaries
+
+Run the **Build native FFmpeg release** workflow in GitHub Actions with a new tag such as `native-ffmpeg-8.1.3-r2`. It builds all four architectures and publishes a separate native-assets release containing binaries, license notices, corresponding source archives/build instructions, checksums, and a generated `native-release.json`. Download that JSON file, replace `scripts/native-release.json`, run the download and Gradle checks, and commit the new pin before tagging an Android library release for JitPack. Use a new native tag for every update; never overwrite existing release assets.
+
+To rebuild locally instead, install NDK `27.0.12077973`, SDK CMake `3.22.1`, make, Perl, tar, shasum, pkg-config, and Python venv/pip, then run:
+
+```bash
+export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
+sdkmanager "ndk;27.0.12077973" "cmake;3.22.1"
+python3 -m venv .native-tools
+PIP_USER=false .native-tools/bin/pip install meson==1.12.1 ninja==1.13.0
+./build-ffmpeg.sh
+bash scripts/package-native.sh native-ffmpeg-8.1.3-r2
+```
+
+The package command writes the native assets and pin file to `releases/native/`; it does not publish the Android library. Upstream source URLs and checksums are pinned in [scripts/native-sources.txt](scripts/native-sources.txt) and [scripts/native-sources.sha256](scripts/native-sources.sha256). Cached archives and extracted sources are refreshed when their checksum changes; clear `.native-build/work/` and `.native-build/install/` when changing dependency versions or compiler flags. `./build-ffmpeg.sh arm64-v8a` builds one ABI, but all four are required for packaging.
 
 ## Integrate
+
+For a JitPack release, add `maven { url = uri("https://jitpack.io") }` to the consuming project's dependency repositories and use the Git tag as the version:
+
+```kotlin
+dependencies {
+    implementation("com.github.mzgs:FFmpegX-Android:<tag>")
+}
+```
+
+JitPack supplies the repository name and tag to the Maven publication; local publication keeps the `com.github.mzgs:ffmpegx-android:3.0.0` coordinates.
 
 For the local module, add this to the consuming application's `build.gradle.kts`:
 
@@ -154,6 +178,7 @@ After building native binaries, run the native checks and JVM tests:
 ```bash
 python3 scripts/verify-native.py
 python3 scripts/test-verify-native.py
+python3 scripts/test-download-native.py
 ./gradlew :ffmpegx:testDebugUnitTest
 ./gradlew :app:assembleDebug :ffmpegx:assembleRelease
 ```
@@ -166,7 +191,7 @@ Run instrumentation on a connected Android device or emulator:
 
 The native verifier checks all eight executables; its self-check tests rejection of invalid binaries. Unit checks cover quoting, progress units, and independent process cancellation/completion. Instrumentation uses generated real video/audio, paths containing spaces and apostrophes, every convenience operation, every advertised audio/video format, x265/AV1 encoding, metadata, invalid input, and asynchronous cancellation.
 
-Recorded results and capability listings are in [validation/](validation/README.md), with implementation details in [BUILD-REPORT.md](BUILD-REPORT.md). Runtime validation was performed on an Android 16 / API 36 ARM64 emulator with 4 KiB pages. All four ABIs passed ELF inspection for 16 KiB alignment; physical 16 KiB devices, other-ABI execution, Android 7–15, hardware acceleration, and external streaming services still require runtime testing.
+Previous validation is summarized in [BUILD-REPORT.md](BUILD-REPORT.md). Runtime validation was performed on an Android 16 / API 36 ARM64 emulator with 4 KiB pages. All four ABIs passed ELF inspection for 16 KiB alignment; physical 16 KiB devices, other-ABI execution, Android 7–15, hardware acceleration, and external streaming services still require runtime testing.
 
 ## License and distribution
 

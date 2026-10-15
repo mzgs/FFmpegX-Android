@@ -39,9 +39,9 @@ afterEvaluate {
         publications {
             create<MavenPublication>("release") {
                 from(components["release"])
-                groupId = "com.github.mzgs"
-                artifactId = "ffmpegx-android"
-                version = "3.0.0"
+                groupId = System.getenv("GROUP") ?: "com.github.mzgs"
+                artifactId = System.getenv("ARTIFACT") ?: "ffmpegx-android"
+                version = System.getenv("VERSION") ?: "3.0.0"
             }
         }
     }
