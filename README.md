@@ -16,6 +16,7 @@ FFmpeg and ffprobe are included with the library. See [License and distribution]
 - [Quick start](#quick-start)
 - [Initialization and installation](#initialization-and-installation)
 - [Execute commands](#execute-commands)
+- [Complex example without the command builder](#complex-example-without-the-command-builder)
 - [Command builder reference](#command-builder-reference)
 - [Progress and logs](#progress-and-logs)
 - [Sessions and cancellation](#sessions-and-cancellation)
@@ -172,6 +173,59 @@ val converted = ffmpeg.execute(command)
 ```
 
 `execute` returns `true` for exit code 0 and `false` for a failed or explicitly cancelled process. It waits for completion. `executeAsync(command, callback)` returns a session ID without waiting; see [Sessions and cancellation](#sessions-and-cancellation).
+
+### Complex example without the command builder
+
+Create a 15-second MP4 starting at 5 seconds into a video. This example fits the video into 1280×720, adds a translucent watermark, mixes quiet background music with the original audio, and fades the picture and audio out at the end.
+
+Supply a video with an audio track and at least 20 seconds of footage, a PNG watermark, and a music file with an audio track. Run this inside a coroutine after initializing `ffmpeg`:
+
+```kotlin
+import java.io.File
+
+val videoPath = File(context.filesDir, "input.mp4").absolutePath
+val watermarkPath = File(context.filesDir, "logo.png").absolutePath
+val musicPath = File(context.filesDir, "music.mp3").absolutePath
+val resultFile = File(context.filesDir, "edited.mp4")
+
+val filterGraph = """
+    [0:v]setpts=PTS-STARTPTS,
+        scale=1280:720:force_original_aspect_ratio=decrease,
+        pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[base];
+    [1:v]scale=160:-1,format=rgba,colorchannelmixer=aa=0.7[logo];
+    [base][logo]overlay=W-w-24:H-h-24,
+        fade=t=in:st=0:d=0.5,fade=t=out:st=14:d=1[video];
+    [0:a:0]asetpts=PTS-STARTPTS[original];
+    [2:a:0]asetpts=PTS-STARTPTS,volume=0.15[music];
+    [original][music]amix=inputs=2:duration=first:normalize=0,
+        alimiter=limit=0.95,afade=t=out:st=14:d=1[audio]
+""".trimIndent()
+
+val arguments = listOf(
+    "-y",
+    "-ss", "5", "-i", videoPath,       // Input 0: seek into the source video.
+    "-loop", "1", "-i", watermarkPath, // Input 1: keep the image available.
+    "-stream_loop", "-1", "-i", musicPath, // Input 2: repeat short music tracks.
+    "-filter_complex", filterGraph,
+    "-map", "[video]", "-map", "[audio]",
+    "-t", "15",                       // Limit the finished video to 15 seconds.
+    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+    "-pix_fmt", "yuv420p",
+    "-c:a", "aac", "-b:a", "192k",
+    "-movflags", "+faststart",
+    resultFile.absolutePath
+)
+
+val success = ffmpeg.execute(arguments)
+if (success) {
+    println("Saved ${resultFile.absolutePath}")
+} else {
+    // Pass an FFmpegCallback as the second argument to capture failure details.
+    println("Could not create the edited video")
+}
+```
+
+Pass each option and value as a separate list item, including the entire filter graph as one value. Paths containing spaces need no extra quotes. Input numbers such as `[0:v]` and `[2:a:0]` refer to the order of the `-i` arguments; `-map` selects the filtered video and mixed audio for the output.
 
 ## Command builder reference
 
